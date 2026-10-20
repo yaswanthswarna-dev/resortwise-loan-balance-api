@@ -1,0 +1,139 @@
+# =============================================================================
+# PUBLIC REPOSITORY: never commit connection strings, passwords, keys,
+# certificates, or database data. Keep secrets in user-secrets, environment
+# variables, or a secret manager. Commit only sanitized *.example templates.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Secrets & local configuration
+# -----------------------------------------------------------------------------
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.Local.json
+appsettings.Secrets.json
+secrets.json
+*.secrets.json
+connectionstrings.json
+**/Properties/launchSettings.local.json
+
+# Environment files (allow sanitized templates)
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+
+# Keys, certificates, credentials
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+*.cer
+*.crt
+*.jks
+*.keystore
+*.publishsettings
+*.azurePubxml
+*.pubxml
+*.pubxml.user
+**/PublishProfiles/
+id_rsa*
+*.ppk
+
+# Generic local-secret naming conventions
+*.local
+*.local.*
+*secret*.json
+*Secret*.json
+credentials.json
+*.credentials
+!*.example
+
+# -----------------------------------------------------------------------------
+# SQL Server data, backups & logs
+# -----------------------------------------------------------------------------
+*.mdf
+*.ldf
+*.ndf
+*.bak
+*.trn
+*.bacpac
+*.dacpac
+*.sdf
+*.sqlite
+*.db
+*.db-shm
+*.db-wal
+*.dbmdl
+*.jfm
+*.sqlaudit
+
+# -----------------------------------------------------------------------------
+# .NET build output
+# -----------------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+publish/
+out/
+
+# NuGet
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+project.lock.json
+project.fragment.lock.json
+.nuget/
+
+# Test results & coverage
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+coverage*.info
+TestResults/
+
+# -----------------------------------------------------------------------------
+# IDEs & editors
+# -----------------------------------------------------------------------------
+.vs/
+*.user
+*.userosscache
+*.suo
+*.sln.docstates
+*.userprefs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.sln.iml
+_ReSharper*/
+*.DotSettings.user
+
+# Claude Code local settings (may contain personal paths/permissions)
+.claude/settings.local.json
+
+# -----------------------------------------------------------------------------
+# OS files
+# -----------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+*.swp
+*~
