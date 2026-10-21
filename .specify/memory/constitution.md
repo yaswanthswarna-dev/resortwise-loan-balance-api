@@ -1,24 +1,18 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.1.0 (MINOR: new principle and materially expanded guidance;
-  no principle removed or weakened)
+- Version change: 1.1.0 → 1.1.1 (PATCH, as requested in review)
 - Modified principles:
-  - II. Tenant Isolation → II. Tenant Isolation and Authorization (adds caller credential,
-    tenant authorization, 401 UNAUTHENTICATED, 403 TENANT_FORBIDDEN, tenant registry and
-    one-database-per-tenant mapping, two-database isolation tests)
-  - V. Public Repository Hygiene (adds: no data in pull request descriptions)
-  - VI. Stable Error Contract (changing an error code requires a new API version)
-  - VII. Tested Against SPI Data (adds auth error tests; database tests run locally, never on
-    GitHub; local run summary required in the PR)
-- Added principles: VIII. URL-Path API Versioning
-- Added/expanded sections: preamble now describes this repository; Data & Platform Constraints
-  (container, cloud-agnostic, configuration from environment variables, tenant registry);
-  Development Workflow (no direct commits to main, including constitution changes; local test
-  summary in PR)
+  - III. SPI Schema Is Read-Only (states the test-setup exception: data changes in the two local
+    test copies only, never schema changes)
+  - VII. Tested Against SPI Data (adds the test data rule: test-setup scripts change data only in
+    `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`, check the database name first and stop
+    otherwise, and contain no loan values or client data; isolation tests use the two copies)
+- Added sections: none
+- Expanded sections: Data & Platform Constraints (test database bullet names the B copy)
 - Removed sections: none
 - Templates reviewed: plan-template.md, spec-template.md, tasks-template.md read gates and
   rules from this file at runtime; no edits required
-- Follow-up: CLAUDE.md summary predates 1.1.0 and should be updated to match
+- CLAUDE.md: test data rule added
 - Deferred TODOs: none
 -->
 
@@ -73,6 +67,9 @@ one database per tenant makes the isolation boundary physical and testable.
 - The API MUST read SPI data only through `rw` views. Application code MUST NOT query SPI tables
   or call SPI procedures directly.
 - Every `rw` object MUST be created by a versioned, reviewable script committed to this repository.
+- The only exception is test-setup scripts, which MAY change data in the two local test copies
+  under the test data rule in Principle VII. They MUST NOT create, alter, or drop SPI objects,
+  and MUST NEVER run against a client database.
 
 **Rationale**: The SPI Application owns its schema. Isolating ResortWise in `rw` keeps SPI
 upgrades safe and gives one auditable seam between the two systems.
@@ -136,10 +133,24 @@ improve.
   include loan values or other data (Principle V).
 - A feature MUST NOT merge with failing or skipped endpoint tests unless the skip is documented
   and approved in the pull request.
+- **Test data**: test-setup scripts MAY change data only in the two local test copies,
+  `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`, and MUST NEVER change data in a client
+  database.
+  - Tenant isolation tests (Principle II) use these two local copies as the two tenant databases.
+    A test-setup script changes or removes some loans in `AlphaPMS_ResortWise_B` so the two
+    databases return different results.
+  - Every test-setup script MUST first check the name of the database it is connected to and MUST
+    stop with an error, before changing anything, unless the name is exactly
+    `AlphaPMS_ResortWise` or `AlphaPMS_ResortWise_B`.
+  - Test-setup scripts MUST NOT contain loan values or client data (Principle V). They select
+    rows by rule (for example, by a condition on loan IDs), never by listing specific loans or
+    values.
 
 **Rationale**: Automated checks against real SPI data are the only durable proof of correctness
 and parity. Keeping database tests off GitHub keeps SPI data and connection details out of a
-public CI system, and the run summary gives reviewers evidence without exposing data.
+public CI system, and the run summary gives reviewers evidence without exposing data. The
+database name check makes it impossible for a test-setup script to change a client database by
+mistake, and rule-based selection keeps client data out of the public repository.
 
 ### VIII. URL-Path API Versioning
 
@@ -162,9 +173,11 @@ contract evolve without breaking existing clients.
 - Tenant data: one SPI database per client, selected only through the tenant registry
   (Principle II).
 - SPI data access: read-only, via `rw` views only (Principle III).
-- Test database: `AlphaPMS_ResortWise` is the reference for parity tests. Its connection details
-  are supplied through git-ignored local settings or environment variables only (Principle V),
-  and tests against it run locally only (Principle VII).
+- Test databases: `AlphaPMS_ResortWise` is the reference for parity tests, and a second local
+  copy, `AlphaPMS_ResortWise_B`, is changed by test-setup scripts to serve as the second tenant in
+  isolation tests. Their connection details are supplied through git-ignored local settings or
+  environment variables only (Principle V), and tests against them run locally only
+  (Principle VII).
 - Contract: the OpenAPI document is the authoritative description of every endpoint, version,
   header, credential, schema, and error code (Principles I, VI, and VIII).
 
@@ -200,4 +213,4 @@ contract evolve without breaking existing clients.
   guidance; PATCH for clarifications and wording fixes.
 - Reviewers MUST verify compliance with these principles on every pull request.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
+**Version**: 1.1.1 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21

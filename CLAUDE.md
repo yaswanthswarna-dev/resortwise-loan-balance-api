@@ -39,6 +39,18 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
   request's tenant. Connection details live only in git-ignored local settings or environment
   variables, never in the repo.
 
+## Test data rules
+
+- **Test-setup scripts change data only in local test copies, never in a client database.** The
+  only two allowed databases are `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. They may
+  change data only; they never create, alter, or drop SPI objects.
+- Tenant isolation tests use these two local copies. A test-setup script changes or removes some
+  loans in `AlphaPMS_ResortWise_B` so the two databases return different results.
+- Every test-setup script checks the database name first and stops with an error, before changing
+  anything, unless it is exactly `AlphaPMS_ResortWise` or `AlphaPMS_ResortWise_B`.
+- Test-setup scripts never contain loan values or client data. They select rows by rule (for
+  example, a condition on loan IDs), never by listing specific loans or values.
+
 ## Platform
 
 - The service runs in a container and stays cloud-agnostic. Do not depend on any one cloud
@@ -56,9 +68,12 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
    - Missing or invalid credential: HTTP 401, `UNAUTHENTICATED`.
    - Caller not allowed that tenant: HTTP 403, `TENANT_FORBIDDEN`.
 
-   Never return data from another tenant. Isolation tests use at least two tenant databases and
-   prove one tenant cannot read another tenant's loans.
-3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules).
+   Never return data from another tenant. Isolation tests use at least two tenant databases
+   (`AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` locally) and prove one tenant cannot read
+   another tenant's loans.
+3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules). The only
+   exception is test-setup scripts in the two local test copies; see
+   [Test data rules](#test-data-rules).
 4. **Parity with the SPI Application.** API values must match what the SPI Application shows,
    proven by tests against the `AlphaPMS_ResortWise` test database. If two SPI screens disagree,
    record the loan and both values in the spec and escalate. Never pick one silently.
@@ -73,6 +88,7 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
      opened, never on GitHub**. GitHub runs only tests that need no database.
    - The PR description includes a summary of the local run: date, test database name, number of
      loans checked, and passed and failed counts. No data.
+   - Test-setup scripts follow the [Test data rules](#test-data-rules).
 8. **URL-path API versioning.** The version is in the URL path, starting at `/v1`. Adding optional
    fields is not breaking. Removing or renaming a field, changing a field's type or meaning, or
    changing an error code is breaking and requires a new API version.
