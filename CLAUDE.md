@@ -41,13 +41,16 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
 
 ## Test data rules
 
-- **Test-setup scripts change data only in local test copies, never in a client database.** The
-  only two allowed databases are `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. They may
-  change data only; they never create, alter, or drop SPI objects.
-- Tenant isolation tests use these two local copies. A test-setup script changes or removes some
-  loans in `AlphaPMS_ResortWise_B` so the two databases return different results.
+- **Test-setup scripts change data only in `AlphaPMS_ResortWise_B`.** They never change data in
+  `AlphaPMS_ResortWise` or in a client database, and they never create, alter, or drop SPI
+  objects.
+- **`AlphaPMS_ResortWise` is the parity reference and stays exactly as restored.** No script may
+  ever change data in it.
+- Tenant isolation tests use `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. A test-setup
+  script changes or removes some loans in `AlphaPMS_ResortWise_B` so the two databases return
+  different results.
 - Every test-setup script checks the database name first and stops with an error, before changing
-  anything, unless it is exactly `AlphaPMS_ResortWise` or `AlphaPMS_ResortWise_B`.
+  anything, unless it is exactly `AlphaPMS_ResortWise_B`.
 - Test-setup scripts never contain loan values or client data. They select rows by rule (for
   example, a condition on loan IDs), never by listing specific loans or values.
 
@@ -72,7 +75,7 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
    (`AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` locally) and prove one tenant cannot read
    another tenant's loans.
 3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules). The only
-   exception is test-setup scripts in the two local test copies; see
+   exception is test-setup scripts, which may change data in `AlphaPMS_ResortWise_B` only; see
    [Test data rules](#test-data-rules).
 4. **Parity with the SPI Application.** API values must match what the SPI Application shows,
    proven by tests against the `AlphaPMS_ResortWise` test database. If two SPI screens disagree,

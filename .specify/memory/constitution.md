@@ -1,18 +1,25 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.1.1 (PATCH, as requested in review)
+- Version change: 1.1.0 → 1.2.0 (MINOR: adds an exception to non-negotiable Principle III and
+  a new test data rule, which materially expands guidance under the Governance versioning
+  policy; supersedes the 1.1.1 PATCH label used in the first draft of this amendment)
 - Modified principles:
-  - III. SPI Schema Is Read-Only (states the test-setup exception: data changes in the two local
-    test copies only, never schema changes)
+  - III. SPI Schema Is Read-Only (NON-NEGOTIABLE) (adds the test-setup exception: data changes in
+    the local test copy `AlphaPMS_ResortWise_B` only, never schema changes, never
+    `AlphaPMS_ResortWise` or a client database)
   - VII. Tested Against SPI Data (adds the test data rule: test-setup scripts change data only in
-    `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`, check the database name first and stop
-    otherwise, and contain no loan values or client data; isolation tests use the two copies)
+    `AlphaPMS_ResortWise_B`; `AlphaPMS_ResortWise` is the parity reference and stays exactly as
+    restored; scripts check the database name first and stop with an error unless it is
+    `AlphaPMS_ResortWise_B`; scripts contain no loan values or client data; isolation tests use
+    the two databases)
 - Added sections: none
-- Expanded sections: Data & Platform Constraints (test database bullet names the B copy)
+- Expanded sections: Data & Platform Constraints (test database bullet names the B copy as the
+  only database test-setup scripts may change, and requires the reference to stay as restored)
 - Removed sections: none
 - Templates reviewed: plan-template.md, spec-template.md, tasks-template.md read gates and
   rules from this file at runtime; no edits required
-- CLAUDE.md: test data rule added
+- CLAUDE.md: test data rule added (data changes in `AlphaPMS_ResortWise_B` only; the parity
+  reference stays exactly as restored); constitution summary item 3 updated to match
 - Deferred TODOs: none
 -->
 
@@ -67,9 +74,10 @@ one database per tenant makes the isolation boundary physical and testable.
 - The API MUST read SPI data only through `rw` views. Application code MUST NOT query SPI tables
   or call SPI procedures directly.
 - Every `rw` object MUST be created by a versioned, reviewable script committed to this repository.
-- The only exception is test-setup scripts, which MAY change data in the two local test copies
-  under the test data rule in Principle VII. They MUST NOT create, alter, or drop SPI objects,
-  and MUST NEVER run against a client database.
+- The only exception is test-setup scripts, which MAY change data in the local test copy
+  `AlphaPMS_ResortWise_B` only, under the test data rule in Principle VII. They MUST NOT create,
+  alter, or drop SPI objects, and MUST NEVER run against `AlphaPMS_ResortWise` or a client
+  database.
 
 **Rationale**: The SPI Application owns its schema. Isolating ResortWise in `rw` keeps SPI
 upgrades safe and gives one auditable seam between the two systems.
@@ -133,24 +141,27 @@ improve.
   include loan values or other data (Principle V).
 - A feature MUST NOT merge with failing or skipped endpoint tests unless the skip is documented
   and approved in the pull request.
-- **Test data**: test-setup scripts MAY change data only in the two local test copies,
-  `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`, and MUST NEVER change data in a client
+- **Test data**: test-setup scripts MAY change data only in the local test copy
+  `AlphaPMS_ResortWise_B`. They MUST NEVER change data in `AlphaPMS_ResortWise` or in a client
   database.
-  - Tenant isolation tests (Principle II) use these two local copies as the two tenant databases.
-    A test-setup script changes or removes some loans in `AlphaPMS_ResortWise_B` so the two
-    databases return different results.
+  - `AlphaPMS_ResortWise` is the parity reference (Principle IV) and MUST stay exactly as
+    restored. No script may ever change data in it.
+  - Tenant isolation tests (Principle II) use `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`
+    as the two tenant databases. A test-setup script changes or removes some loans in
+    `AlphaPMS_ResortWise_B` so the two databases return different results.
   - Every test-setup script MUST first check the name of the database it is connected to and MUST
     stop with an error, before changing anything, unless the name is exactly
-    `AlphaPMS_ResortWise` or `AlphaPMS_ResortWise_B`.
+    `AlphaPMS_ResortWise_B`.
   - Test-setup scripts MUST NOT contain loan values or client data (Principle V). They select
     rows by rule (for example, by a condition on loan IDs), never by listing specific loans or
     values.
 
 **Rationale**: Automated checks against real SPI data are the only durable proof of correctness
 and parity. Keeping database tests off GitHub keeps SPI data and connection details out of a
-public CI system, and the run summary gives reviewers evidence without exposing data. The
-database name check makes it impossible for a test-setup script to change a client database by
-mistake, and rule-based selection keeps client data out of the public repository.
+public CI system, and the run summary gives reviewers evidence without exposing data. Parity
+results are only meaningful if the reference database is untouched, so the database name check
+lets a test-setup script change only `AlphaPMS_ResortWise_B`, never the parity reference or a
+client database, and rule-based selection keeps client data out of the public repository.
 
 ### VIII. URL-Path API Versioning
 
@@ -173,11 +184,11 @@ contract evolve without breaking existing clients.
 - Tenant data: one SPI database per client, selected only through the tenant registry
   (Principle II).
 - SPI data access: read-only, via `rw` views only (Principle III).
-- Test databases: `AlphaPMS_ResortWise` is the reference for parity tests, and a second local
-  copy, `AlphaPMS_ResortWise_B`, is changed by test-setup scripts to serve as the second tenant in
-  isolation tests. Their connection details are supplied through git-ignored local settings or
-  environment variables only (Principle V), and tests against them run locally only
-  (Principle VII).
+- Test databases: `AlphaPMS_ResortWise` is the reference for parity tests and MUST stay exactly
+  as restored. A second local copy, `AlphaPMS_ResortWise_B`, is the only database test-setup
+  scripts may change, and serves as the second tenant in isolation tests. Their connection
+  details are supplied through git-ignored local settings or environment variables only
+  (Principle V), and tests against them run locally only (Principle VII).
 - Contract: the OpenAPI document is the authoritative description of every endpoint, version,
   header, credential, schema, and error code (Principles I, VI, and VIII).
 
@@ -213,4 +224,4 @@ contract evolve without breaking existing clients.
   guidance; PATCH for clarifications and wording fixes.
 - Reviewers MUST verify compliance with these principles on every pull request.
 
-**Version**: 1.1.1 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
+**Version**: 1.2.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
