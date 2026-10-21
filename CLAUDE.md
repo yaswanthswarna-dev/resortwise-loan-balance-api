@@ -1,6 +1,8 @@
 # ResortWise Loan Balance API
 
-ResortWise is an open API layer over SPI loan data, built with .NET on Microsoft SQL Server.
+This repository is the ResortWise loan balance API: a read-only service in the ResortWise
+platform that returns SPI loan balances through new `rw` views. It is built with .NET on
+Microsoft SQL Server.
 
 The full rules are in [`.specify/memory/constitution.md`](.specify/memory/constitution.md).
 If this file and the constitution ever disagree, the constitution wins.
@@ -17,6 +19,9 @@ Secrets live only in git-ignored local settings: `dotnet user-secrets`, `appsett
 `appsettings.Development.json`, or environment variables. Committed config files such as
 `appsettings.json` contain placeholders only. Committed test data must be synthetic.
 
+Pull request descriptions, comments, and reviews are public too. Never paste loan values, owner
+details, or any other client data into them.
+
 Before every commit, check the staged diff (`git diff --cached`) for secrets and real data. If a
 secret is ever committed, treat it as compromised and rotate it. Rewriting history is not enough.
 
@@ -29,14 +34,30 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
 - **The API reads SPI data only through `rw` views.** Application code never queries SPI tables or
   calls SPI procedures directly.
 - Every `rw` object is created by a versioned script committed to this repo.
+- **One database per tenant.** Each SPI client has its own database. A tenant registry maps each
+  tenant ID to exactly one database, and the API only ever connects to the database mapped to the
+  request's tenant. Connection details live only in git-ignored local settings or environment
+  variables, never in the repo.
+
+## Platform
+
+- The service runs in a container and stays cloud-agnostic. Do not depend on any one cloud
+  vendor's services.
+- All runtime configuration comes from environment variables.
 
 ## Constitution summary
 
 1. **API first.** Every action goes through the API. There are no internal-only endpoints; our own
    screens use the same public API as external systems. Every endpoint is documented in OpenAPI.
-2. **Tenant isolation (non-negotiable).** Every request needs an `X-Tenant-Id` header. If it is
-   missing or empty, return HTTP 400 with error code `TENANT_REQUIRED` before touching data.
-   Never return data from another tenant.
+2. **Tenant isolation and authorization (non-negotiable).** Every request needs an `X-Tenant-Id`
+   header and a valid caller credential (the mechanism is chosen in the plan). Before reading any
+   data, the API confirms the caller is allowed that tenant:
+   - Missing or empty `X-Tenant-Id`: HTTP 400, `TENANT_REQUIRED`.
+   - Missing or invalid credential: HTTP 401, `UNAUTHENTICATED`.
+   - Caller not allowed that tenant: HTTP 403, `TENANT_FORBIDDEN`.
+
+   Never return data from another tenant. Isolation tests use at least two tenant databases and
+   prove one tenant cannot read another tenant's loans.
 3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules).
 4. **Parity with the SPI Application.** API values must match what the SPI Application shows,
    proven by tests against the `AlphaPMS_ResortWise` test database. If two SPI screens disagree,
@@ -46,12 +67,21 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
    errors. Codes are listed in OpenAPI and never renamed. Clients map errors by code, never by
    message text. Messages never include secrets, SQL, or stack traces.
 7. **Tested against SPI data.** Every endpoint has automated tests: success, `TENANT_REQUIRED`,
-   tenant isolation, and its error codes. Returned values are checked against the SPI database,
-   not only mocks.
+   `UNAUTHENTICATED`, `TENANT_FORBIDDEN`, tenant isolation, and its error codes. Returned values
+   are checked against the SPI database, not only mocks.
+   - Tests that need `AlphaPMS_ResortWise` or any SPI database run **locally before the PR is
+     opened, never on GitHub**. GitHub runs only tests that need no database.
+   - The PR description includes a summary of the local run: date, test database name, number of
+     loans checked, and passed and failed counts. No data.
+8. **URL-path API versioning.** The version is in the URL path, starting at `/v1`. Adding optional
+   fields is not breaking. Removing or renaming a field, changing a field's type or meaning, or
+   changing an error code is breaking and requires a new API version.
 
 ## Spec Kit workflow
 
-All feature work happens on a feature branch, never directly on `main`. **Commit after each step.**
+**Nothing goes directly to `main`**, including constitution changes. All work happens on a
+branch and reaches `main` only through a reviewed pull request. (The initial setup commit was the
+only exception.) **Commit after each step.**
 
 | Step | Command | Output |
 | --- | --- | --- |
@@ -66,5 +96,6 @@ All feature work happens on a feature branch, never directly on `main`. **Commit
 
 Analyze runs after tasks because it checks `tasks.md`. It must always run before implement.
 
-When the feature is complete, open a pull request for review. Reviewers check compliance with the
+When the feature is complete, run the database tests locally, then open a pull request for review
+with the local run summary (no data) in the description. Reviewers check compliance with the
 constitution. After merge, set the spec's **Status** to `Done`.
