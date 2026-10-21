@@ -1,25 +1,33 @@
 <!--
 Sync Impact Report
-- Version change: (unversioned template) → 1.0.0
-- Principles defined (initial ratification):
-  - I. API First
-  - II. Tenant Isolation (NON-NEGOTIABLE)
-  - III. SPI Schema Is Read-Only (NON-NEGOTIABLE)
-  - IV. Parity with the SPI Application
-  - V. Public Repository Hygiene (NON-NEGOTIABLE)
-  - VI. Stable Error Contract
-  - VII. Tested Against SPI Data
-- Added sections: Data & Platform Constraints; Development Workflow; Governance
+- Version change: 1.1.0 → 1.2.0 (MINOR: adds an exception to non-negotiable Principle III and
+  a new test data rule, which materially expands guidance under the Governance versioning
+  policy; supersedes the 1.1.1 PATCH label used in the first draft of this amendment)
+- Modified principles:
+  - III. SPI Schema Is Read-Only (NON-NEGOTIABLE) (adds the test-setup exception: data changes in
+    the local test copy `AlphaPMS_ResortWise_B` only, never schema changes, never
+    `AlphaPMS_ResortWise` or a client database)
+  - VII. Tested Against SPI Data (adds the test data rule: test-setup scripts change data only in
+    `AlphaPMS_ResortWise_B`; `AlphaPMS_ResortWise` is the parity reference and stays exactly as
+    restored; scripts check the database name first and stop with an error unless it is
+    `AlphaPMS_ResortWise_B`; scripts contain no loan values or client data; isolation tests use
+    the two databases)
+- Added sections: none
+- Expanded sections: Data & Platform Constraints (test database bullet names the B copy as the
+  only database test-setup scripts may change, and requires the reference to stay as restored)
 - Removed sections: none
-- Templates reviewed: plan-template.md (Constitution Check reads gates from this file at runtime),
-  spec-template.md (Status field used by Workflow rule), tasks-template.md — no edits required
+- Templates reviewed: plan-template.md, spec-template.md, tasks-template.md read gates and
+  rules from this file at runtime; no edits required
+- CLAUDE.md: test data rule added (data changes in `AlphaPMS_ResortWise_B` only; the parity
+  reference stays exactly as restored); constitution summary item 3 updated to match
 - Deferred TODOs: none
 -->
 
-# ResortWise Constitution
+# ResortWise Loan Balance API Constitution
 
-ResortWise is an open API layer over SPI loan data. These principles govern every feature,
-specification, plan, and pull request in this repository.
+This repository is the ResortWise loan balance API, a read-only service in the ResortWise
+platform that returns SPI loan balances through new `rw` views. These principles govern every
+feature, specification, plan, and pull request in this repository.
 
 ## Core Principles
 
@@ -30,23 +38,33 @@ specification, plan, and pull request in this repository.
 - There are NO internal-only APIs. ResortWise's own screens MUST consume the same public
   endpoints that external systems use, with the same authentication, tenancy, and error rules.
 - Every endpoint MUST be described in the OpenAPI document, including request and response
-  schemas, the `X-Tenant-Id` header, and every error code it can return. An endpoint that is not
-  in the OpenAPI document is not done.
+  schemas, the `X-Tenant-Id` header, the caller credential, and every error code it can return.
+  An endpoint that is not in the OpenAPI document is not done.
 
 **Rationale**: One public surface keeps behavior consistent for every consumer and makes the
 OpenAPI contract the single source of truth.
 
-### II. Tenant Isolation (NON-NEGOTIABLE)
+### II. Tenant Isolation and Authorization (NON-NEGOTIABLE)
 
-- Every request MUST carry a tenant identifier in the `X-Tenant-Id` header.
-- A request without the header, or with an empty value, MUST be rejected with HTTP 400 and error
-  code `TENANT_REQUIRED` before any data access occurs.
-- Every data access MUST be scoped to the request's tenant. The API MUST NEVER return, count,
-  or reveal the existence of data belonging to another tenant.
-- Tenant scoping MUST be covered by automated tests, including a test proving that one tenant
-  cannot read another tenant's records.
+- Every request MUST carry a tenant identifier in the `X-Tenant-Id` header and a valid caller
+  credential. The credential mechanism is chosen in the plan and documented in OpenAPI.
+- Before reading any data, the API MUST authenticate the caller and confirm the caller is
+  allowed to use the tenant named in `X-Tenant-Id`:
+  - Missing or empty `X-Tenant-Id`: HTTP 400, error code `TENANT_REQUIRED`.
+  - Missing or invalid credential: HTTP 401, error code `UNAUTHENTICATED`.
+  - Valid credential that is not allowed the requested tenant: HTTP 403, error code
+    `TENANT_FORBIDDEN`.
+- Each SPI client has its own database. A tenant registry MUST map each tenant ID to exactly one
+  database, and the API MUST only ever connect to the database mapped to the request's tenant.
+- Tenant database connection details MUST live only in git-ignored local settings or
+  environment variables, never in the repository (Principle V).
+- The API MUST NEVER return, count, or reveal the existence of data belonging to another tenant.
+- Tenant isolation tests MUST use at least two tenant databases and MUST prove that one tenant
+  cannot read another tenant's loans.
 
-**Rationale**: Loan data is client-confidential; a single cross-tenant leak is a breach.
+**Rationale**: Loan data is client-confidential; a single cross-tenant leak is a breach. A tenant
+header alone proves nothing about the caller, so access to a tenant must be authorized, and
+one database per tenant makes the isolation boundary physical and testable.
 
 ### III. SPI Schema Is Read-Only (NON-NEGOTIABLE)
 
@@ -56,6 +74,10 @@ OpenAPI contract the single source of truth.
 - The API MUST read SPI data only through `rw` views. Application code MUST NOT query SPI tables
   or call SPI procedures directly.
 - Every `rw` object MUST be created by a versioned, reviewable script committed to this repository.
+- The only exception is test-setup scripts, which MAY change data in the local test copy
+  `AlphaPMS_ResortWise_B` only, under the test data rule in Principle VII. They MUST NOT create,
+  alter, or drop SPI objects, and MUST NEVER run against `AlphaPMS_ResortWise` or a client
+  database.
 
 **Rationale**: The SPI Application owns its schema. Isolating ResortWise in `rw` keeps SPI
 upgrades safe and gives one auditable seam between the two systems.
@@ -84,6 +106,8 @@ choices between conflicting numbers become financial errors.
   configuration MUST contain placeholders only.
 - Test fixtures committed to the repository MUST use synthetic data. Parity tests MUST read real
   values from the test database at run time instead of storing them in the repository.
+- Pull request descriptions, comments, and review threads are public too. They MUST NEVER
+  contain loan values, owner details, or any other client data.
 - A secret that is committed, even briefly, MUST be treated as compromised and rotated; removing
   it from git history alone is not sufficient.
 
@@ -92,10 +116,11 @@ choices between conflicting numbers become financial errors.
 ### VI. Stable Error Contract
 
 - Every error response MUST include a stable, machine-readable error code (for example
-  `TENANT_REQUIRED`).
+  `TENANT_REQUIRED`, `UNAUTHENTICATED`, `TENANT_FORBIDDEN`).
 - Input validation errors MUST also include the name of the offending field.
 - Error codes are part of the public contract: once released they MUST NOT be renamed or
-  repurposed, and each MUST be listed in the OpenAPI document.
+  repurposed within an API version, and each MUST be listed in the OpenAPI document. Changing
+  an error code is a breaking change (Principle VIII).
 - Clients map errors by code, never by message text. Message text MAY change at any time and
   MUST NOT contain secrets, SQL, stack traces, or other tenants' data.
 
@@ -104,37 +129,85 @@ improve.
 
 ### VII. Tested Against SPI Data
 
-- Every endpoint MUST have automated tests covering success, tenant rejection
-  (`TENANT_REQUIRED`), tenant isolation, and its documented error codes.
+- Every endpoint MUST have automated tests covering success, `TENANT_REQUIRED`,
+  `UNAUTHENTICATED`, `TENANT_FORBIDDEN`, tenant isolation, and its documented error codes.
 - Returned values MUST be checked against the SPI database (see Principle IV), not only against
   mocks.
+- Tests that need `AlphaPMS_ResortWise` or any other SPI database MUST run locally before the
+  pull request is opened, and MUST NEVER run on GitHub. GitHub runs only tests that need no
+  database.
+- The pull request description MUST include a summary of the local run: the date, the test
+  database name, the number of loans checked, and the passed and failed counts. It MUST NOT
+  include loan values or other data (Principle V).
 - A feature MUST NOT merge with failing or skipped endpoint tests unless the skip is documented
   and approved in the pull request.
+- **Test data**: test-setup scripts MAY change data only in the local test copy
+  `AlphaPMS_ResortWise_B`. They MUST NEVER change data in `AlphaPMS_ResortWise` or in a client
+  database.
+  - `AlphaPMS_ResortWise` is the parity reference (Principle IV) and MUST stay exactly as
+    restored. No script may ever change data in it.
+  - Tenant isolation tests (Principle II) use `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`
+    as the two tenant databases. A test-setup script changes or removes some loans in
+    `AlphaPMS_ResortWise_B` so the two databases return different results.
+  - Every test-setup script MUST first check the name of the database it is connected to and MUST
+    stop with an error, before changing anything, unless the name is exactly
+    `AlphaPMS_ResortWise_B`.
+  - Test-setup scripts MUST NOT contain loan values or client data (Principle V). They select
+    rows by rule (for example, by a condition on loan IDs), never by listing specific loans or
+    values.
 
 **Rationale**: Automated checks against real SPI data are the only durable proof of correctness
-and parity.
+and parity. Keeping database tests off GitHub keeps SPI data and connection details out of a
+public CI system, and the run summary gives reviewers evidence without exposing data. Parity
+results are only meaningful if the reference database is untouched, so the database name check
+lets a test-setup script change only `AlphaPMS_ResortWise_B`, never the parity reference or a
+client database, and rule-based selection keeps client data out of the public repository.
+
+### VIII. URL-Path API Versioning
+
+- The API version MUST be in the URL path, starting at `/v1`.
+- Adding optional request or response fields is not a breaking change.
+- Removing or renaming a field, changing a field's type or meaning, or changing an error code is
+  a breaking change and MUST be released under a new API version. Breaking changes MUST NEVER be
+  made to an existing version.
+
+**Rationale**: External systems depend on the contract; an explicit version in the path lets the
+contract evolve without breaking existing clients.
 
 ## Data & Platform Constraints
 
-- Platform: .NET API over Microsoft SQL Server.
+- Stack: .NET API over Microsoft SQL Server.
+- Runtime: the service MUST run in a container and MUST stay cloud-agnostic. It MUST NOT depend
+  on any single cloud vendor's services.
+- Configuration: all runtime configuration MUST come from environment variables. Committed
+  configuration files contain placeholders only (Principle V).
+- Tenant data: one SPI database per client, selected only through the tenant registry
+  (Principle II).
 - SPI data access: read-only, via `rw` views only (Principle III).
-- Test database: `AlphaPMS_ResortWise` is the reference for parity tests. Its connection details
-  are supplied through git-ignored local settings or environment variables only (Principle V).
-- Contract: the OpenAPI document is the authoritative description of every endpoint, header,
-  schema, and error code (Principles I and VI).
+- Test databases: `AlphaPMS_ResortWise` is the reference for parity tests and MUST stay exactly
+  as restored. A second local copy, `AlphaPMS_ResortWise_B`, is the only database test-setup
+  scripts may change, and serves as the second tenant in isolation tests. Their connection
+  details are supplied through git-ignored local settings or environment variables only
+  (Principle V), and tests against them run locally only (Principle VII).
+- Contract: the OpenAPI document is the authoritative description of every endpoint, version,
+  header, credential, schema, and error code (Principles I, VI, and VIII).
 
 ## Development Workflow
 
-1. **Feature branch**: All work happens on a feature branch; nothing is committed directly to
-   `main`.
+1. **Branch and pull request**: Nothing is committed directly to `main`, including constitution
+   changes. All work happens on a branch and reaches `main` only through a reviewed pull request.
+   The initial setup commit was the only exception.
 2. **Specify**: Each spec MUST link its design and/or API contract (OpenAPI).
 3. **Commit per step**: A commit MUST be made after each Spec Kit step (constitution, specify,
-   clarify, plan, tasks, analyze, implement).
+   clarify, plan, tasks, analyze, implement, converge).
 4. **Analyze before implement**: `/speckit-analyze` MUST be run, and its critical findings
    resolved, before `/speckit-implement` starts.
-5. **Review**: Every feature is merged through a pull request that is reviewed for compliance
-   with this constitution, including the plan's Constitution Check.
-6. **Done**: When a feature is complete and merged, its spec's **Status** MUST be set to `Done`.
+5. **Local database tests**: Before opening the pull request, the author MUST run the database
+   tests locally and add the run summary required by Principle VII to the pull request
+   description.
+6. **Review**: Every pull request is reviewed for compliance with this constitution, including
+   the plan's Constitution Check.
+7. **Done**: When a feature is complete and merged, its spec's **Status** MUST be set to `Done`.
 
 ## Governance
 
@@ -143,11 +216,12 @@ and parity.
 - Every plan MUST pass the Constitution Check gate. Any deviation MUST be justified in the plan's
   Complexity Tracking section and explicitly approved in pull request review. Principles marked
   NON-NEGOTIABLE (II, III, V) cannot be waived.
-- Amendments are made by pull request that updates this file, states the version bump and
-  rationale, and lists any dependent templates or docs that must change.
+- Amendments are made on a branch and merged by reviewed pull request that updates this file,
+  states the version bump and rationale, and lists any dependent templates or docs that must
+  change.
 - Versioning follows semantic versioning: MAJOR for removing or redefining a principle in a
   backward-incompatible way; MINOR for adding a principle or section or materially expanding
   guidance; PATCH for clarifications and wording fixes.
 - Reviewers MUST verify compliance with these principles on every pull request.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-20
+**Version**: 1.2.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
