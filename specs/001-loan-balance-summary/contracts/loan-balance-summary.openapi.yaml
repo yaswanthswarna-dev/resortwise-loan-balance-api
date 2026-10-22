@@ -187,7 +187,9 @@ components:
         asOfDate:
           type: string
           format: date
-          description: The business date the balances are stated as of.
+          description: >-
+            The SPI Application's current business date, which the balances are stated as of.
+            Callers cannot request another date.
           example: '2026-10-22'
         principalBalance:
           $ref: '#/components/schemas/Amount'

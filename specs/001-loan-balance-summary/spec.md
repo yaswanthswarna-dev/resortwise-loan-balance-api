@@ -11,6 +11,29 @@
 
 **Input**: User description: "Build a read-only Loan Balance Summary API for ResortWise. A caller asks for one loan's balance summary and gets back the same values the SPI Application's Balance Summary screen shows for that loan. Fields returned: loan ID, loan status, as-of date, principal balance, interest, late fees, service fees, unapplied amount, Others 1 to 5, total balance, past-due amount, and days past due. For Others 1 to 5, return the bucket name the client configured, and only fall back to "Other 1" style names when the client has not named it. Payoff amount is out of scope; it will be its own feature. Every request must carry the X-Tenant-Id header and a valid caller credential, and the caller must be allowed that tenant: missing tenant returns 400 TENANT_REQUIRED, missing or invalid credential returns 401 UNAUTHENTICATED, a tenant the caller is not allowed returns 403 TENANT_FORBIDDEN. A loan that does not exist in that tenant returns 404 LOAN_NOT_FOUND, and a loan from another tenant must look exactly like a loan that does not exist. Every error returns a stable error code, plus the field name for input errors. The API is versioned under /v1. Success means: for every active loan in the AlphaPMS_ResortWise test database, the API values match the Balance Summary screen; a tenant mapped to AlphaPMS_ResortWise_B returns different results than one mapped to AlphaPMS_ResortWise; and no request can read another tenant's data. If the Balance Summary screen and the Loan Summary screen show different values for any test loan, do not pick one; list the loan and both values as an open question for clarify. Create an OpenAPI contract for this endpoint in the feature's contracts folder and link it from the spec, so the contract is part of the spec. Do not commit yet."
 
+## Clarifications
+
+### Session 2026-10-22
+
+- Q: Where should Balance Summary vs Loan Summary discrepancies (loan ID and both screen values) be
+  recorded, given that this repository is public? → A: In a non-public tracker (for example an
+  internal ticket or document). The spec lists only an opaque reference, the affected field, and
+  the escalation status, with no loan IDs or values.
+- Q: Which loans count as "active" for the 100% parity test against the Balance Summary screen
+  (SC-001)? → A: Only loans whose SPI status is exactly "Active" (LoanStatusId = 1). Delinquent
+  loans keep the Active status in SPI (past due is calculated from payments, not stored as a
+  status), so they are inside the parity scope.
+- Q: Should callers be able to request a balance summary as of a specific date, or only as of the
+  SPI Application's current business date? → A: Current business date only. The response returns
+  the as-of date used, and there is no date input.
+- Q: Should the API keep an audit record of every balance-summary request, and if so, how long?
+  → A: A structured audit log entry for every request, including refused ones: time, caller ID,
+  tenant ID, loan ID, status/error code, and a correlation ID. No balance values. Written to
+  stdout; retention is set by the hosting environment.
+- Q: What request rate per tenant counts as "normal load" for the target that 95% of requests
+  finish in under 1 second (SC-006)? → A: 10 requests/second per tenant, 2 tenants at the same
+  time (20 req/s total).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Get a loan's balance summary (Priority: P1)
@@ -129,8 +152,13 @@ the documented status, code, and field.
 - **Several problems at once**: checks run in a fixed order and the first failure is returned:
   credential (401), tenant header (400), tenant authorization (403), loan ID format (400), loan
   existence (404).
-- **Loan exists but is not active** (for example paid off or cancelled): the summary is still
-  returned, with the status the SPI Application shows. Parity success is measured on active loans.
+- **Loan exists but is not active** (any SPI status other than exactly "Active", for example paid
+  off, cancelled, or an old loan row left behind when a loan is rewritten): the summary is still
+  returned, with the status the SPI Application shows. Parity success (SC-001) is measured only on
+  loans whose status is "Active".
+- **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
+  payments), so it is inside the SC-001 parity scope, and its past-due amount and days past due
+  must match the Balance Summary screen.
 - **Client named a bucket with only spaces**: treated as unnamed; the default "Other N" is
   returned.
 - **Client named a bucket "Other 3" for bucket 3**: returned as the client's name, marked as not a
@@ -151,7 +179,9 @@ the documented status, code, and field.
 **Balance summary**
 
 - **FR-001**: The system MUST let an authorized caller request the balance summary of one loan by
-  its loan ID, under the `/v1` version, as defined in the API contract.
+  its loan ID, under the `/v1` version, as defined in the API contract. Balances are always stated
+  as of the SPI Application's current business date; the request takes no date input, and the
+  response returns the as-of date used.
 - **FR-002**: A successful response MUST contain: loan ID, loan status, as-of date, principal
   balance, interest, late fees, service fees, unapplied amount, Others 1 to 5, total balance,
   past-due amount, and days past due.
@@ -196,6 +226,15 @@ the documented status, code, and field.
 - **FR-018**: The endpoint, its headers, credential, response schema, and every error code MUST be
   documented in the linked OpenAPI contract, which is the authoritative description.
 
+**Auditing**
+
+- **FR-019**: Every request, including refused ones (400, 401, 403, 404, 503, 500), MUST produce
+  exactly one structured audit log entry with: time, caller ID (when the credential identifies
+  one), tenant ID as sent, loan ID as sent, HTTP status, error code (if any), and a correlation ID.
+- **FR-020**: Audit entries MUST NOT contain balance values, credentials, connection details, or
+  any other loan data. They are written to standard output; retention is set by the hosting
+  environment, not by the service.
+
 ### Key Entities
 
 - **Tenant**: One SPI client. Identified by a tenant ID; mapped by the tenant registry to exactly
@@ -214,8 +253,8 @@ the documented status, code, and field.
 
 ### Measurable Outcomes
 
-- **SC-001**: For 100% of active loans in the `AlphaPMS_ResortWise` test database, every returned
-  field matches the SPI Application's Balance Summary screen for that loan. Zero mismatches are
+- **SC-001**: For 100% of active loans (SPI status exactly "Active", including delinquent loans)
+  in the `AlphaPMS_ResortWise` test database, every returned field matches the SPI Application's Balance Summary screen for that loan. Zero mismatches are
   allowed.
 - **SC-002**: For every loan the test-setup script changes or removes in `AlphaPMS_ResortWise_B`,
   the tenant mapped to `AlphaPMS_ResortWise_B` returns a different result (different values, or
@@ -228,19 +267,23 @@ the documented status, code, and field.
 - **SC-005**: The not-found response for another tenant's loan is identical to the not-found
   response for a loan that exists in no tenant in 100% of tested cases.
 - **SC-006**: A consumer receives a loan's balance summary in under 1 second for at least 95% of
-  requests under normal load.
+  requests under normal load, defined as a sustained 10 requests/second per tenant against 2
+  tenants at the same time (20 requests/second total).
+- **SC-007**: In the test suite, 100% of requests (successful and refused) produce exactly one
+  audit entry with the FR-019 fields, and 0 audit entries contain a balance value or credential.
 
 ## Open Questions for Clarify
 
 - **Balance Summary vs Loan Summary screen discrepancies**: The two screens have not yet been
   compared for the test loans; that comparison needs access to the SPI Application and has not
-  been done as part of this spec. Any loan where the two screens disagree must be listed here
-  with both values and escalated (constitution Principle IV). No value may be chosen silently.
+  been done as part of this spec. Any loan where the two screens disagree must be recorded and
+  escalated (constitution Principle IV). No value may be chosen silently.
   - *Status*: Comparison pending. No discrepancies recorded yet.
-  - *Repository hygiene*: This repository is public (Principle V). Before any loan ID or screen
-    value is written here, clarify must confirm that recording `AlphaPMS_ResortWise` test values
-    in this spec is allowed, or agree on a non-public place to record them with only a reference
-    here.
+  - *Where values are recorded*: This repository is public (Principle V), so loan IDs and screen
+    values are recorded only in a non-public tracker (for example an internal ticket or
+    document). Each discrepancy is listed here as one entry with an opaque tracker reference, the
+    affected field, and the escalation status, and never with a loan ID or value. The feature is
+    not done while any entry here is unresolved.
 
 ## Assumptions
 
@@ -252,8 +295,11 @@ the documented status, code, and field.
   Application identifies it.
 - Loan status is returned as the text the SPI Application shows; this feature does not define a
   fixed list of statuses.
-- "Active loan" means a loan the SPI Application shows with an active status; the exact rule is
-  confirmed during planning against the SPI data.
+- "Active loan" means a loan whose SPI status is exactly "Active" (LoanStatusId = 1). Delinquent
+  loans keep the Active status in SPI, because past due is calculated from payments and is not
+  stored as a status, so delinquent loans are inside the SC-001 parity scope. Loans in non-active
+  statuses (for example paid off, cancelled, or old loan rows left behind when a loan is
+  rewritten) are still returned by the API but are outside the SC-001 parity scope.
 - Loans are in a single currency per tenant; no currency conversion is needed.
 - Other bucket names are configured per tenant (client), not per loan.
 - The SPI Application's Balance Summary screen is the system of record for every returned value.
