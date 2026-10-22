@@ -1,0 +1,287 @@
+openapi: 3.0.3
+info:
+  title: ResortWise Loan Balance API
+  version: 1.0.0
+  description: |
+    Read-only access to SPI loan balances for ResortWise tenants.
+
+    Every request must carry an `X-Tenant-Id` header and a valid caller credential, and the
+    caller must be allowed the requested tenant. Tenant and credential checks happen before any
+    loan data is read. Each tenant maps to exactly one database; a request only ever sees data
+    from its own tenant. A loan that belongs to another tenant is indistinguishable from a loan
+    that does not exist.
+
+    Errors always carry a stable `code`. Clients must map errors by `code`, never by `message`.
+    Input errors also carry the offending `field`. Error codes listed here are part of the `/v1`
+    contract and are never renamed or repurposed within this version.
+
+    All examples in this document are synthetic.
+servers:
+  - url: /v1
+    description: Version 1 (path-versioned)
+security:
+  - callerCredential: []
+paths:
+  /loans/{loanId}/balance-summary:
+    get:
+      operationId: getLoanBalanceSummary
+      summary: Get one loan's balance summary
+      description: |
+        Returns the same values the SPI Application's Balance Summary screen shows for the loan
+        in the caller's tenant. Payoff amount is not part of this response.
+
+        Check order: credential (401), tenant header (400), tenant authorization (403), loan ID
+        validation (400), loan lookup (404).
+      tags: [Loans]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: loanId
+          in: path
+          required: true
+          description: |
+            The loan's identifier as the SPI Application shows it. Treated as an opaque value;
+            surrounding whitespace is not allowed.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+          example: '100245'
+      responses:
+        '200':
+          description: The loan's balance summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanBalanceSummary'
+        '400':
+          description: |
+            `TENANT_REQUIRED` when `X-Tenant-Id` is missing, empty, or whitespace only
+            (`field` is `X-Tenant-Id`). `LOAN_ID_INVALID` when the loan ID is not a valid
+            identifier (`field` is `loanId`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tenantRequired:
+                  value:
+                    code: TENANT_REQUIRED
+                    message: The X-Tenant-Id header is required.
+                    field: X-Tenant-Id
+                loanIdInvalid:
+                  value:
+                    code: LOAN_ID_INVALID
+                    message: The loan ID is not valid.
+                    field: loanId
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '404':
+          description: |
+            `LOAN_NOT_FOUND` when no loan with this ID exists in the caller's tenant. The
+            response is identical whether the loan does not exist anywhere or exists only in
+            another tenant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: LOAN_NOT_FOUND
+                message: The loan was not found.
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+components:
+  securitySchemes:
+    callerCredential:
+      type: http
+      scheme: bearer
+      description: |
+        Caller credential presented as a bearer token. The exact credential mechanism (token
+        issuer, format, and how a caller's allowed tenants are determined) is decided in the
+        plan and this description will be updated to match. Missing or invalid credentials
+        return `401 UNAUTHENTICATED`.
+  parameters:
+    TenantId:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: |
+        The tenant (SPI client) the request is for. The caller must be allowed this tenant.
+        An unknown tenant ID is treated the same as a tenant the caller is not allowed
+        (`403 TENANT_FORBIDDEN`), so the response never reveals which tenants exist.
+      schema:
+        type: string
+        minLength: 1
+      example: tenant-a
+  responses:
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: the caller credential is missing or invalid.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: UNAUTHENTICATED
+            message: A valid caller credential is required.
+    TenantForbidden:
+      description: '`TENANT_FORBIDDEN`: the caller is not allowed the requested tenant.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: TENANT_FORBIDDEN
+            message: The caller is not allowed to access this tenant.
+    InternalError:
+      description: '`INTERNAL_ERROR`: an unexpected error occurred. No details are exposed.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: INTERNAL_ERROR
+            message: An unexpected error occurred.
+    ServiceUnavailable:
+      description: |
+        `TENANT_UNAVAILABLE`: the tenant's data source cannot be reached right now. The
+        request may be retried later.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: TENANT_UNAVAILABLE
+            message: The tenant's data is temporarily unavailable.
+  schemas:
+    LoanBalanceSummary:
+      type: object
+      description: |
+        One loan's balance summary, matching the SPI Application's Balance Summary screen.
+        Amounts are exact decimal values in the loan's currency with two decimal places, as the
+        SPI Application shows them. Amounts are not recomputed by the API.
+      required:
+        - loanId
+        - loanStatus
+        - asOfDate
+        - principalBalance
+        - interest
+        - lateFees
+        - serviceFees
+        - unappliedAmount
+        - others
+        - totalBalance
+        - pastDueAmount
+        - daysPastDue
+      properties:
+        loanId:
+          type: string
+          description: The loan's identifier, as requested.
+          example: '100245'
+        loanStatus:
+          type: string
+          description: The loan's status as the SPI Application shows it.
+          example: Active
+        asOfDate:
+          type: string
+          format: date
+          description: The business date the balances are stated as of.
+          example: '2026-10-22'
+        principalBalance:
+          $ref: '#/components/schemas/Amount'
+        interest:
+          $ref: '#/components/schemas/Amount'
+        lateFees:
+          $ref: '#/components/schemas/Amount'
+        serviceFees:
+          $ref: '#/components/schemas/Amount'
+        unappliedAmount:
+          $ref: '#/components/schemas/Amount'
+        others:
+          type: array
+          description: |
+            The five "Other" balance buckets, always five entries, ordered by `bucket` 1 to 5.
+          minItems: 5
+          maxItems: 5
+          items:
+            $ref: '#/components/schemas/OtherBucket'
+        totalBalance:
+          $ref: '#/components/schemas/Amount'
+        pastDueAmount:
+          $ref: '#/components/schemas/Amount'
+        daysPastDue:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Number of days the loan is past due; 0 when not past due.
+          example: 0
+      example:
+        loanId: '100245'
+        loanStatus: Active
+        asOfDate: '2026-10-22'
+        principalBalance: 12500.00
+        interest: 85.40
+        lateFees: 0.00
+        serviceFees: 15.00
+        unappliedAmount: 0.00
+        others:
+          - { bucket: 1, name: Maintenance Fees, nameIsDefault: false, amount: 0.00 }
+          - { bucket: 2, name: Other 2, nameIsDefault: true, amount: 0.00 }
+          - { bucket: 3, name: Other 3, nameIsDefault: true, amount: 0.00 }
+          - { bucket: 4, name: Other 4, nameIsDefault: true, amount: 0.00 }
+          - { bucket: 5, name: Other 5, nameIsDefault: true, amount: 0.00 }
+        totalBalance: 12600.40
+        pastDueAmount: 0.00
+        daysPastDue: 0
+    OtherBucket:
+      type: object
+      required: [bucket, name, nameIsDefault, amount]
+      properties:
+        bucket:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: The bucket number, 1 to 5.
+        name:
+          type: string
+          description: |
+            The name the client configured for this bucket. When the client has not named it
+            (no name, or a blank name), this is the default "Other N", where N is the bucket
+            number.
+        nameIsDefault:
+          type: boolean
+          description: True when `name` is the "Other N" fallback rather than a client-configured name.
+        amount:
+          $ref: '#/components/schemas/Amount'
+    Amount:
+      type: number
+      format: decimal
+      multipleOf: 0.01
+      description: |
+        An exact decimal amount with two decimal places, as the SPI Application shows it. May be
+        negative where the SPI Application shows a negative value.
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable, machine-readable error code. Clients map errors by this value.
+          enum:
+            - TENANT_REQUIRED
+            - UNAUTHENTICATED
+            - TENANT_FORBIDDEN
+            - LOAN_ID_INVALID
+            - LOAN_NOT_FOUND
+            - TENANT_UNAVAILABLE
+            - INTERNAL_ERROR
+        message:
+          type: string
+          description: |
+            Human-readable description. May change at any time. Never contains secrets, SQL,
+            stack traces, or other tenants' data.
+        field:
+          type: string
+          description: The offending input field. Present for input errors only.
