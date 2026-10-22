@@ -1,25 +1,22 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.2.0 (MINOR: adds an exception to non-negotiable Principle III and
-  a new test data rule, which materially expands guidance under the Governance versioning
-  policy; supersedes the 1.1.1 PATCH label used in the first draft of this amendment)
+- Version change: 1.2.0 → 1.3.0 (MINOR: adds an exception to non-negotiable Principle III that
+  lets tests call SPI procedures and functions read-only, which materially expands guidance
+  under the Governance versioning policy)
 - Modified principles:
-  - III. SPI Schema Is Read-Only (NON-NEGOTIABLE) (adds the test-setup exception: data changes in
-    the local test copy `AlphaPMS_ResortWise_B` only, never schema changes, never
-    `AlphaPMS_ResortWise` or a client database)
-  - VII. Tested Against SPI Data (adds the test data rule: test-setup scripts change data only in
-    `AlphaPMS_ResortWise_B`; `AlphaPMS_ResortWise` is the parity reference and stays exactly as
-    restored; scripts check the database name first and stop with an error unless it is
-    `AlphaPMS_ResortWise_B`; scripts contain no loan values or client data; isolation tests use
-    the two databases)
+  - III. SPI Schema Is Read-Only (NON-NEGOTIABLE) (application code must not call SPI stored
+    procedures or functions, directly or indirectly; adds the test exception: tests may call SPI
+    procedures and functions read-only, against the local test databases only, to get parity
+    reference values, and never call an SPI procedure that writes data)
+  - VII. Tested Against SPI Data (adds the parity reference calls rule matching Principle III)
 - Added sections: none
-- Expanded sections: Data & Platform Constraints (test database bullet names the B copy as the
-  only database test-setup scripts may change, and requires the reference to stay as restored)
+- Expanded sections: Data & Platform Constraints (SPI data access bullet notes the test-only
+  read exception)
 - Removed sections: none
 - Templates reviewed: plan-template.md, spec-template.md, tasks-template.md read gates and
   rules from this file at runtime; no edits required
-- CLAUDE.md: test data rule added (data changes in `AlphaPMS_ResortWise_B` only; the parity
-  reference stays exactly as restored); constitution summary item 3 updated to match
+- CLAUDE.md: parity reference rule added under Database rules; constitution summary item 3
+  updated to match
 - Deferred TODOs: none
 -->
 
@@ -72,15 +69,21 @@ one database per tenant makes the isolation boundary physical and testable.
   other SPI-owned objects, and MUST NEVER write to SPI tables.
 - ResortWise MAY add new views and tables only, and all of them MUST live in the `rw` schema.
 - The API MUST read SPI data only through `rw` views. Application code MUST NOT query SPI tables
-  or call SPI procedures directly.
+  or call SPI stored procedures or functions, directly or indirectly.
 - Every `rw` object MUST be created by a versioned, reviewable script committed to this repository.
-- The only exception is test-setup scripts, which MAY change data in the local test copy
-  `AlphaPMS_ResortWise_B` only, under the test data rule in Principle VII. They MUST NOT create,
-  alter, or drop SPI objects, and MUST NEVER run against `AlphaPMS_ResortWise` or a client
-  database.
+- The only exception for writes is test-setup scripts, which MAY change data in the local test
+  copy `AlphaPMS_ResortWise_B` only, under the test data rule in Principle VII. They MUST NOT
+  create, alter, or drop SPI objects, and MUST NEVER run against `AlphaPMS_ResortWise` or a
+  client database.
+- The only exception for SPI procedures and functions is tests: tests MAY call SPI stored
+  procedures and functions read-only, against the local test databases only, to get parity
+  reference values (Principle IV). Tests MUST NEVER call an SPI procedure that writes data. This
+  exception never extends to application code.
 
 **Rationale**: The SPI Application owns its schema. Isolating ResortWise in `rw` keeps SPI
-upgrades safe and gives one auditable seam between the two systems.
+upgrades safe and gives one auditable seam between the two systems. SPI's own read procedures
+and functions are often the closest source of what the SPI Application shows, so tests may use
+them as an independent parity reference, while the application stays behind `rw` views.
 
 ### IV. Parity with the SPI Application
 
@@ -155,6 +158,10 @@ improve.
   - Test-setup scripts MUST NOT contain loan values or client data (Principle V). They select
     rows by rule (for example, by a condition on loan IDs), never by listing specific loans or
     values.
+- **Parity reference calls**: tests MAY call SPI stored procedures and functions read-only, and
+  only against the local test databases, to get the reference values that API results are
+  compared with (Principles III and IV). Tests MUST NEVER call an SPI procedure that writes
+  data. Application code MUST NEVER call SPI procedures or functions.
 
 **Rationale**: Automated checks against real SPI data are the only durable proof of correctness
 and parity. Keeping database tests off GitHub keeps SPI data and connection details out of a
@@ -183,7 +190,9 @@ contract evolve without breaking existing clients.
   configuration files contain placeholders only (Principle V).
 - Tenant data: one SPI database per client, selected only through the tenant registry
   (Principle II).
-- SPI data access: read-only, via `rw` views only (Principle III).
+- SPI data access: read-only, via `rw` views only (Principle III). Tests alone MAY also call SPI
+  procedures and functions read-only against the local test databases for parity reference
+  values (Principles III and VII).
 - Test databases: `AlphaPMS_ResortWise` is the reference for parity tests and MUST stay exactly
   as restored. A second local copy, `AlphaPMS_ResortWise_B`, is the only database test-setup
   scripts may change, and serves as the second tenant in isolation tests. Their connection
@@ -224,4 +233,4 @@ contract evolve without breaking existing clients.
   guidance; PATCH for clarifications and wording fixes.
 - Reviewers MUST verify compliance with these principles on every pull request.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
+**Version**: 1.3.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-22
