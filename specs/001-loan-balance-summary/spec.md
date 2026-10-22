@@ -281,7 +281,7 @@ the documented status, code, and field.
 
 - **Balance Summary vs Loan Summary screen discrepancies**: Any loan where the screens disagree
   must be recorded and escalated (constitution Principle IV). No value may be chosen silently.
-  - *Comparison done*: 6 test loans were compared in the SPI Application on 2026-10-22. The
+  - *Comparison done*: 5 test loans were compared in the SPI Application on 2026-10-22. The
     loan-level details were sent privately to Farzin. This repository is public (Principle V), so
     no loan IDs, owner names, or amounts are recorded here.
   - *Where each field appears*: The Balance Summary tab on the Transaction Activity screen shows
@@ -290,7 +290,7 @@ the documented status, code, and field.
     past-due amount, and days past due appear only on the Loan Summary Information tab and the
     Loan Setup screen. Some of those appear twice, as of two dates: today (Current Payment
     Information) and the Valid Through date (Payoff Information).
-  - *Results*: Principal Remaining and Payments Remaining matched on all 6 loans. One difference
+  - *Results*: Principal Remaining and Payments Remaining matched on all 5 loans. One difference
     was found on a rewritten loan (Last Payment and YTD totals); it is recorded under the
     rewritten-loan question below.
   - *Open question for Farzin*: For fields that are not on the Balance Summary tab, which screen
