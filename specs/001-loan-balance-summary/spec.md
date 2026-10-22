@@ -34,6 +34,27 @@
   finish in under 1 second (SC-006)? → A: 10 requests/second per tenant, 2 tenants at the same
   time (20 req/s total).
 
+### Farzin's decisions (2026-10-22)
+
+- Q: For fields that are not on the Balance Summary tab, which screen and section is the parity
+  source? → A: Principal Remaining and Payments Remaining come from the Balance Summary tab of the
+  Transaction Activity screen. Every other returned field comes from the Loan Summary Information
+  tab, Current Payment Information section, as of today. Payoff Information is out of scope and
+  belongs to the payoff feature.
+- Q: What does the API return for an old, rewritten loan ID? → A: (a) The API works per loan
+  record. An old, rewritten loan ID returns that loan record's own balance summary with its
+  non-active status. Last Payment and the YTD totals are not returned by this API, so the
+  per-contract behavior of the Balance Summary tab does not affect it.
+- Q: Should test loans with conflicting values on the same screen be excluded from the parity
+  test? → A: No. They stay in the parity test, because the API only has to match the chosen screen
+  section, and the conflicting fields are not returned. Suspected SPI defects are noted
+  privately, not in this repository.
+- Confirmed: delinquent loans count as active; balances are as of today only; every request is
+  logged without balances; normal load is 10 requests/second per tenant.
+- Added: the parity test gets the screen values automatically by calling, read-only, the same SPI
+  procedures or queries the screen uses against `AlphaPMS_ResortWise`, and compares them with the
+  API response (FR-021). The exact procedures are identified in the plan.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Get a loan's balance summary (Priority: P1)
@@ -42,20 +63,20 @@ A ResortWise screen or an external system, acting for one SPI client (tenant), a
 balance summary of one loan. It receives the loan ID, loan status, as-of date, principal balance,
 interest, late fees, service fees, unapplied amount, the five "Other" buckets (each with its
 client-configured name), total balance, past-due amount, and days past due. Every value matches
-what the SPI Application's Balance Summary screen shows for that loan.
+what the SPI Application shows for that loan in the parity source screen section (see FR-003).
 
 **Why this priority**: This is the feature's whole purpose. Without matching values, no consumer
 can trust ResortWise over the SPI Application.
 
 **Independent Test**: With a caller allowed the tenant mapped to `AlphaPMS_ResortWise`, request
-the balance summary for each active loan and compare every field with the Balance Summary screen
-values for the same loan.
+the balance summary for each active loan and compare every field with the parity source values
+for the same loan, read automatically from SPI as described in FR-021.
 
 **Acceptance Scenarios**:
 
 1. **Given** an authorized caller and an active loan in the caller's tenant, **When** the caller
    requests that loan's balance summary, **Then** the response contains every listed field and
-   each value equals the Balance Summary screen value for that loan.
+   each value equals the parity source value for that loan (FR-003).
 2. **Given** a client that has named Other bucket 1 (for example "Maintenance Fees") and left
    buckets 2 to 5 unnamed, **When** the caller requests a loan's balance summary, **Then** bucket 1
    is returned with the client's name and buckets 2 to 5 are returned as "Other 2" to "Other 5",
@@ -155,11 +176,16 @@ the documented status, code, and field.
 - **Loan exists but is not active** (any SPI status other than exactly "Active", for example paid
   off or cancelled): the summary is still returned, with the status the SPI Application shows.
   Parity success (SC-001) is measured only on loans whose status is "Active".
-- **Old loan row left behind by a rewrite**: also outside the SC-001 parity scope. What the API
-  returns for its loan ID is undecided; see the rewritten-loan open question.
+- **Old loan record left behind by a rewrite**: the API works per loan record, so the old loan ID
+  returns that loan record's own balance summary with its non-active status, never the new loan's
+  summary on the same contract. It is outside the SC-001 parity scope because it is not active.
 - **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
   payments), so it is inside the SC-001 parity scope, and its past-due amount and days past due
-  must match the Balance Summary screen.
+  must match the Loan Summary Information tab, Current Payment Information section.
+- **Test loan with conflicting values on the same screen** (for example two different monthly
+  payments): stays in the SC-001 parity scope. The API only has to match the parity source
+  section, and the conflicting fields are not returned. Suspected SPI defects are noted
+  privately, not in this repository.
 - **Client named a bucket with only spaces**: treated as unnamed; the default "Other N" is
   returned.
 - **Client named a bucket "Other 3" for bucket 3**: returned as the client's name, marked as not a
@@ -187,9 +213,16 @@ the documented status, code, and field.
 - **FR-002**: A successful response MUST contain: loan ID, loan status, as-of date, principal
   balance, interest, late fees, service fees, unapplied amount, Others 1 to 5, total balance,
   past-due amount, and days past due.
-- **FR-003**: Every returned value MUST equal the value the SPI Application's Balance Summary
-  screen shows for the same loan, tenant, and as-of date. The API MUST NOT recompute, round
-  differently, or reinterpret SPI values.
+- **FR-003**: Every returned value MUST equal the value the SPI Application shows for the same
+  loan, tenant, and as-of date (today) in its parity source:
+  - Principal balance: Principal Remaining on the Balance Summary tab of the Transaction Activity
+    screen. (Payments Remaining also comes from this tab but is not a returned field.)
+  - Every other returned field: the Loan Summary Information tab, Current Payment Information
+    section, as of today.
+  - Payoff Information (as of the Valid Through date) is not a parity source; it belongs to the
+    payoff feature.
+
+  The API MUST NOT recompute, round differently, or reinterpret SPI values.
 - **FR-004**: Others 1 to 5 MUST always be returned as five entries in bucket order, each with a
   bucket number, a name, an indicator of whether the name is the default, and an amount.
 - **FR-005**: Each Other bucket's name MUST be the name the client configured for that bucket. Only
@@ -199,6 +232,10 @@ the documented status, code, and field.
   returned as zero, not omitted.
 - **FR-007**: The response MUST NOT include a payoff amount.
 - **FR-008**: The feature is read-only. No request may change any data.
+- **FR-008a**: The API works per loan record. A request for a loan ID returns that loan record's
+  own summary and status, including an old loan record left behind by a rewrite (non-active
+  status). It never substitutes another loan record on the same contract. Last Payment and
+  year-to-date totals are not returned.
 
 **Authentication, authorization, and tenancy**
 
@@ -238,6 +275,15 @@ the documented status, code, and field.
   any other loan data. They are written to standard output; retention is set by the hosting
   environment, not by the service.
 
+**Parity testing**
+
+- **FR-021**: The parity test MUST get the expected screen values automatically, by calling the
+  same SPI stored procedures or queries the SPI Application screen sections in FR-003 use, against
+  `AlphaPMS_ResortWise`, and MUST compare them field by field with the API response. These calls
+  MUST be read-only: they MUST NOT change data or create, alter, or drop SPI objects. The test is
+  test code, not application code, and runs locally only (constitution Principle VII). The exact
+  procedures or queries are identified in the plan.
+
 ### Key Entities
 
 - **Tenant**: One SPI client. Identified by a tenant ID; mapped by the tenant registry to exactly
@@ -248,8 +294,8 @@ the documented status, code, and field.
   (the SPI loan record's numeric ID), with a status. The same loan ID may exist in more than one
   tenant with unrelated data. When a loan is rewritten, SPI creates a new loan record on the same
   contract and the old record stays with a non-active status.
-- **Loan Balance Summary**: The read-only set of balance values the Balance Summary screen shows
-  for one loan as of a date: principal, interest, late fees, service fees, unapplied amount,
+- **Loan Balance Summary**: The read-only set of balance values the SPI Application shows for one
+  loan record as of today, in the parity source sections of FR-003: principal, interest, late fees, service fees, unapplied amount,
   Others 1 to 5, total balance, past-due amount, and days past due.
 - **Other Bucket**: One of five client-configurable balance categories. Has a bucket number (1 to
   5), an optional client-configured name, and an amount per loan.
@@ -259,8 +305,9 @@ the documented status, code, and field.
 ### Measurable Outcomes
 
 - **SC-001**: For 100% of active loans (SPI status exactly "Active", including delinquent loans)
-  in the `AlphaPMS_ResortWise` test database, every returned field matches the SPI Application's Balance Summary screen for that loan. Zero mismatches are
-  allowed.
+  in the `AlphaPMS_ResortWise` test database, including loans with conflicting values on the same
+  screen, every returned field matches its FR-003 parity source for that loan, as read
+  automatically by the parity test (FR-021). Zero mismatches are allowed.
 - **SC-002**: For every loan the test-setup script changes or removes in `AlphaPMS_ResortWise_B`,
   the tenant mapped to `AlphaPMS_ResortWise_B` returns a different result (different values, or
   `LOAN_NOT_FOUND`) than the tenant mapped to `AlphaPMS_ResortWise`.
@@ -279,8 +326,10 @@ the documented status, code, and field.
 
 ## Open Questions for Clarify
 
-- **Balance Summary vs Loan Summary screen discrepancies**: Any loan where the screens disagree
-  must be recorded and escalated (constitution Principle IV). No value may be chosen silently.
+All open questions below were answered by Farzin on 2026-10-22 and are closed. See
+[Farzin's decisions](#farzins-decisions-2026-10-22).
+
+- **Balance Summary vs Loan Summary screen discrepancies**: *Status*: Closed.
   - *Comparison done*: 5 test loans were compared in the SPI Application on 2026-10-22. The
     loan-level details were sent privately to Farzin. This repository is public (Principle V), so
     no loan IDs, owner names, or amounts are recorded here.
@@ -288,39 +337,27 @@ the documented status, code, and field.
     only Principal YTD, Interest YTD, Principal Remaining, Payments Remaining, Last Payment, and
     Next Payment. Interest due, late fees, service fees, unapplied, Others 1 to 5, total balance,
     past-due amount, and days past due appear only on the Loan Summary Information tab and the
-    Loan Setup screen. Some of those appear twice, as of two dates: today (Current Payment
-    Information) and the Valid Through date (Payoff Information).
-  - *Results*: Principal Remaining and Payments Remaining matched on all 5 loans. One difference
-    was found on a rewritten loan (Last Payment and YTD totals); it is recorded under the
-    rewritten-loan question below.
-  - *Open question for Farzin*: For fields that are not on the Balance Summary tab, which screen
-    and section is the parity source (Loan Summary Information tab or Loan Setup screen; Current
-    Payment Information as of today or Payoff Information as of the Valid Through date)?
-  - *Status*: Open, awaiting Farzin's decision. The plan and tests must not assume a source.
-  - *Where values are recorded*: Loan IDs and screen values are recorded only in a non-public
-    tracker (for example an internal ticket or document). Each discrepancy is listed here as one
-    entry with an opaque tracker reference, the affected field, and the escalation status, and
-    never with a loan ID or value. The feature is not done while any entry here is unresolved.
-- **Rewritten loans (for Farzin)**: In SPI, rewriting a loan creates a new loan row on the same
-  contract, and the old row stays with a non-active status. When a caller asks for the old,
-  rewritten loan's ID, what should the API return?
-  - (a) The old loan row's own balance summary, with its non-active status.
-  - (b) The current (new) loan's balance summary on the same contract.
-  - (c) An error.
-  - *Screen comparison finding (2026-10-22)*: On a rewritten loan, Last Payment on the Balance
-    Summary tab shows a payment made on the old loan, but Last Payment is blank on the Loan
-    Summary tab. The Balance Summary tab's YTD totals also include the old loan's payments. So the
-    Balance Summary tab works per contract for rewritten loans, while the Loan Summary tab works
-    per loan row. Farzin's answer should also say which of these the API follows for the new
-    loan's Last Payment and YTD fields.
-  - *Status*: Open, awaiting Farzin's decision. No answer has been chosen; the plan and tests
-    must not assume one.
-- **Test loans with conflicting values (for Farzin)**: Some test loans show values that conflict
-  on the same screen, for example two different monthly payments, or a principal balance with a
-  zero payoff amount. These are likely left over from earlier rewrite bug testing. Should the
-  parity test exclude such loans, or report them as SPI defects?
-  - *Status*: Open, awaiting Farzin's decision. The parity test must not silently skip or accept
-    these loans until this is answered.
+    Loan Setup screen, some of them twice: as of today (Current Payment Information) and as of the
+    Valid Through date (Payoff Information).
+  - *Results*: Principal Remaining and Payments Remaining matched on all 5 loans. The only
+    difference found (Last Payment and YTD totals on a rewritten loan) is in fields this API does
+    not return.
+  - *Decision*: Principal Remaining and Payments Remaining come from the Balance Summary tab;
+    every other returned field comes from the Loan Summary Information tab, Current Payment
+    Information section, as of today. Payoff Information is out of scope (payoff feature). See
+    FR-003.
+  - *Where values are recorded*: If a future comparison finds a discrepancy, loan IDs and screen
+    values are recorded only in a non-public tracker. It is listed here only with an opaque
+    tracker reference, the affected field, and the escalation status, never with a loan ID or
+    value. The feature is not done while any such entry is unresolved. No entries are open.
+- **Rewritten loans**: *Status*: Closed. Decision (a): the API works per loan record, and an old,
+  rewritten loan ID returns that loan record's own balance summary with its non-active status.
+  The per-contract behavior of the Balance Summary tab (Last Payment and YTD totals including the
+  old loan's payments) does not affect this API, because those fields are not returned. See
+  FR-008a.
+- **Test loans with conflicting values**: *Status*: Closed. Such loans stay in the parity test,
+  because the API only has to match the chosen screen section and the conflicting fields are not
+  returned. Suspected SPI defects are noted privately, not in this repository.
 
 ## Assumptions
 
@@ -335,12 +372,13 @@ the documented status, code, and field.
 - "Active loan" means a loan whose SPI status is exactly "Active" (LoanStatusId = 1). Delinquent
   loans keep the Active status in SPI, because past due is calculated from payments and is not
   stored as a status, so delinquent loans are inside the SC-001 parity scope. Loans in non-active
-  statuses (for example paid off, cancelled, or old loan rows left behind when a loan is
-  rewritten) are outside the SC-001 parity scope. Paid-off and cancelled loans are still returned
-  by the API; what is returned for an old rewritten loan row is an open question.
+  statuses (for example paid off, cancelled, or old loan records left behind when a loan is
+  rewritten) are outside the SC-001 parity scope, but are still returned by the API with their
+  own summary and status (FR-008a).
 - Loans are in a single currency per tenant; no currency conversion is needed.
 - Other bucket names are configured per tenant (client), not per loan.
-- The SPI Application's Balance Summary screen is the system of record for every returned value.
+- The SPI Application is the system of record for every returned value, through the parity
+  source sections in FR-003.
 - Data is read from SPI only through `rw` views created by versioned scripts in this repository;
   SPI objects are never changed (constitution Principle III).
 - Tests that use `AlphaPMS_ResortWise` or `AlphaPMS_ResortWise_B` run locally only, and the

@@ -27,8 +27,12 @@ paths:
       operationId: getLoanBalanceSummary
       summary: Get one loan's balance summary
       description: |
-        Returns the same values the SPI Application's Balance Summary screen shows for the loan
-        in the caller's tenant. Payoff amount is not part of this response.
+        Returns the same values the SPI Application shows for the loan record in the caller's
+        tenant, as of today: principal balance from Principal Remaining on the Balance Summary
+        tab of the Transaction Activity screen, and every other field from the Loan Summary
+        Information tab, Current Payment Information section. Works per loan record: an old loan
+        record left behind by a rewrite returns its own summary and non-active status. Payoff
+        amount is not part of this response.
 
         Check order: credential (401), tenant header (400), tenant authorization (403), loan ID
         validation (400), loan lookup (404).
@@ -160,7 +164,8 @@ components:
     LoanBalanceSummary:
       type: object
       description: |
-        One loan's balance summary, matching the SPI Application's Balance Summary screen.
+        One loan record's balance summary as of today, matching the SPI Application screen
+        sections described on the operation.
         Amounts are exact decimal values in the loan's currency with two decimal places, as the
         SPI Application shows them. Amounts are not recomputed by the API.
       required:
