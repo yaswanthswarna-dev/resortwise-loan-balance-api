@@ -279,24 +279,48 @@ the documented status, code, and field.
 
 ## Open Questions for Clarify
 
-- **Balance Summary vs Loan Summary screen discrepancies**: The two screens have not yet been
-  compared for the test loans; that comparison needs access to the SPI Application and has not
-  been done as part of this spec. Any loan where the two screens disagree must be recorded and
-  escalated (constitution Principle IV). No value may be chosen silently.
-  - *Status*: Comparison pending. No discrepancies recorded yet.
-  - *Where values are recorded*: This repository is public (Principle V), so loan IDs and screen
-    values are recorded only in a non-public tracker (for example an internal ticket or
-    document). Each discrepancy is listed here as one entry with an opaque tracker reference, the
-    affected field, and the escalation status, and never with a loan ID or value. The feature is
-    not done while any entry here is unresolved.
+- **Balance Summary vs Loan Summary screen discrepancies**: Any loan where the screens disagree
+  must be recorded and escalated (constitution Principle IV). No value may be chosen silently.
+  - *Comparison done*: 6 test loans were compared in the SPI Application on 2026-10-22. The
+    loan-level details were sent privately to Farzin. This repository is public (Principle V), so
+    no loan IDs, owner names, or amounts are recorded here.
+  - *Where each field appears*: The Balance Summary tab on the Transaction Activity screen shows
+    only Principal YTD, Interest YTD, Principal Remaining, Payments Remaining, Last Payment, and
+    Next Payment. Interest due, late fees, service fees, unapplied, Others 1 to 5, total balance,
+    past-due amount, and days past due appear only on the Loan Summary Information tab and the
+    Loan Setup screen. Some of those appear twice, as of two dates: today (Current Payment
+    Information) and the Valid Through date (Payoff Information).
+  - *Results*: Principal Remaining and Payments Remaining matched on all 6 loans. One difference
+    was found on a rewritten loan (Last Payment and YTD totals); it is recorded under the
+    rewritten-loan question below.
+  - *Open question for Farzin*: For fields that are not on the Balance Summary tab, which screen
+    and section is the parity source (Loan Summary Information tab or Loan Setup screen; Current
+    Payment Information as of today or Payoff Information as of the Valid Through date)?
+  - *Status*: Open, awaiting Farzin's decision. The plan and tests must not assume a source.
+  - *Where values are recorded*: Loan IDs and screen values are recorded only in a non-public
+    tracker (for example an internal ticket or document). Each discrepancy is listed here as one
+    entry with an opaque tracker reference, the affected field, and the escalation status, and
+    never with a loan ID or value. The feature is not done while any entry here is unresolved.
 - **Rewritten loans (for Farzin)**: In SPI, rewriting a loan creates a new loan row on the same
   contract, and the old row stays with a non-active status. When a caller asks for the old,
   rewritten loan's ID, what should the API return?
   - (a) The old loan row's own balance summary, with its non-active status.
   - (b) The current (new) loan's balance summary on the same contract.
   - (c) An error.
+  - *Screen comparison finding (2026-10-22)*: On a rewritten loan, Last Payment on the Balance
+    Summary tab shows a payment made on the old loan, but Last Payment is blank on the Loan
+    Summary tab. The Balance Summary tab's YTD totals also include the old loan's payments. So the
+    Balance Summary tab works per contract for rewritten loans, while the Loan Summary tab works
+    per loan row. Farzin's answer should also say which of these the API follows for the new
+    loan's Last Payment and YTD fields.
   - *Status*: Open, awaiting Farzin's decision. No answer has been chosen; the plan and tests
     must not assume one.
+- **Test loans with conflicting values (for Farzin)**: Some test loans show values that conflict
+  on the same screen, for example two different monthly payments, or a principal balance with a
+  zero payoff amount. These are likely left over from earlier rewrite bug testing. Should the
+  parity test exclude such loans, or report them as SPI defects?
+  - *Status*: Open, awaiting Farzin's decision. The parity test must not silently skip or accept
+    these loans until this is answered.
 
 ## Assumptions
 
