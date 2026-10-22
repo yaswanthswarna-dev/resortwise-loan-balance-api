@@ -39,13 +39,14 @@ paths:
           in: path
           required: true
           description: |
-            The loan's identifier as the SPI Application shows it. Treated as an opaque value;
-            surrounding whitespace is not allowed.
+            The SPI loan record's numeric ID: a positive whole number written in plain digits,
+            with no sign, decimal point, leading zeros, or surrounding whitespace. A value outside
+            the range of the SPI loan record ID returns `LOAN_ID_INVALID`.
           schema:
-            type: string
-            minLength: 1
-            maxLength: 50
-          example: '100245'
+            type: integer
+            format: int64
+            minimum: 1
+          example: 100245
       responses:
         '200':
           description: The loan's balance summary.
@@ -56,8 +57,8 @@ paths:
         '400':
           description: |
             `TENANT_REQUIRED` when `X-Tenant-Id` is missing, empty, or whitespace only
-            (`field` is `X-Tenant-Id`). `LOAN_ID_INVALID` when the loan ID is not a valid
-            identifier (`field` is `loanId`).
+            (`field` is `X-Tenant-Id`). `LOAN_ID_INVALID` when the loan ID is not a valid SPI
+            loan record ID (`field` is `loanId`).
           content:
             application/json:
               schema:
@@ -177,9 +178,11 @@ components:
         - daysPastDue
       properties:
         loanId:
-          type: string
-          description: The loan's identifier, as requested.
-          example: '100245'
+          type: integer
+          format: int64
+          minimum: 1
+          description: The SPI loan record's numeric ID, as requested.
+          example: 100245
         loanStatus:
           type: string
           description: The loan's status as the SPI Application shows it.
@@ -220,7 +223,7 @@ components:
           description: Number of days the loan is past due; 0 when not past due.
           example: 0
       example:
-        loanId: '100245'
+        loanId: 100245
         loanStatus: Active
         asOfDate: '2026-10-22'
         principalBalance: 12500.00

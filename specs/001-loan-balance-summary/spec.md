@@ -137,9 +137,9 @@ the documented status, code, and field.
 
 **Acceptance Scenarios**:
 
-1. **Given** an authorized request with a loan ID that is not a valid identifier (for example
-   longer than allowed, or with leading or trailing whitespace), **When** it is sent, **Then** the
-   response is HTTP 400 with code `LOAN_ID_INVALID` and field `loanId`.
+1. **Given** an authorized request with a loan ID that is not a valid SPI loan record ID (for
+   example text, a negative number, zero, or a number with leading zeros), **When** it is sent,
+   **Then** the response is HTTP 400 with code `LOAN_ID_INVALID` and field `loanId`.
 2. **Given** an authorized request for a well-formed loan ID that does not exist in the tenant,
    **When** it is sent, **Then** the response is HTTP 404 with code `LOAN_NOT_FOUND`.
 3. **Given** any error response, **Then** its message contains no secrets, SQL, stack traces, or
@@ -153,9 +153,10 @@ the documented status, code, and field.
   credential (401), tenant header (400), tenant authorization (403), loan ID format (400), loan
   existence (404).
 - **Loan exists but is not active** (any SPI status other than exactly "Active", for example paid
-  off, cancelled, or an old loan row left behind when a loan is rewritten): the summary is still
-  returned, with the status the SPI Application shows. Parity success (SC-001) is measured only on
-  loans whose status is "Active".
+  off or cancelled): the summary is still returned, with the status the SPI Application shows.
+  Parity success (SC-001) is measured only on loans whose status is "Active".
+- **Old loan row left behind by a rewrite**: also outside the SC-001 parity scope. What the API
+  returns for its loan ID is undecided; see the rewritten-loan open question.
 - **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
   payments), so it is inside the SC-001 parity scope, and its past-due amount and days past due
   must match the Balance Summary screen.
@@ -169,8 +170,9 @@ the documented status, code, and field.
 - **Tenant database unreachable**: HTTP 503 `TENANT_UNAVAILABLE`; the API never falls back to
   another tenant's database.
 - **Unexpected failure**: HTTP 500 `INTERNAL_ERROR` with no internal details.
-- **Loan ID case or leading zeros**: the loan ID is matched exactly as the SPI Application
-  identifies it; no normalization beyond rejecting surrounding whitespace.
+- **Loan ID that is not a positive whole number** (letters, a sign, a decimal point, leading
+  zeros, surrounding whitespace, zero, or a value too large for the SPI loan record ID): HTTP 400
+  `LOAN_ID_INVALID` with field `loanId`. No normalization is applied.
 
 ## Requirements *(mandatory)*
 
@@ -220,8 +222,9 @@ the documented status, code, and field.
   MUST also include the offending field name. The codes for this endpoint are `TENANT_REQUIRED`,
   `UNAUTHENTICATED`, `TENANT_FORBIDDEN`, `LOAN_ID_INVALID`, `LOAN_NOT_FOUND`,
   `TENANT_UNAVAILABLE`, and `INTERNAL_ERROR`.
-- **FR-016**: A loan ID that is not a valid identifier MUST return HTTP 400 `LOAN_ID_INVALID` with
-  field `loanId`.
+- **FR-016**: The loan ID is the SPI loan record's numeric ID. A loan ID that is not a positive
+  whole number, written in plain digits with no leading zeros and within the range of the SPI loan
+  record ID, MUST return HTTP 400 `LOAN_ID_INVALID` with field `loanId`.
 - **FR-017**: Error messages MUST NOT contain secrets, SQL, stack traces, or any tenant's data.
 - **FR-018**: The endpoint, its headers, credential, response schema, and every error code MUST be
   documented in the linked OpenAPI contract, which is the authoritative description.
@@ -241,8 +244,10 @@ the documented status, code, and field.
   one database. Callers are allowed a set of tenants.
 - **Caller**: A system or ResortWise screen presenting a credential. Has a set of tenants it is
   allowed to use.
-- **Loan**: A loan in one tenant's database, identified by its loan ID within that tenant, with a
-  status. The same loan ID may exist in more than one tenant with unrelated data.
+- **Loan**: A loan record in one tenant's database, identified within that tenant by its loan ID
+  (the SPI loan record's numeric ID), with a status. The same loan ID may exist in more than one
+  tenant with unrelated data. When a loan is rewritten, SPI creates a new loan record on the same
+  contract and the old record stays with a non-active status.
 - **Loan Balance Summary**: The read-only set of balance values the Balance Summary screen shows
   for one loan as of a date: principal, interest, late fees, service fees, unapplied amount,
   Others 1 to 5, total balance, past-due amount, and days past due.
@@ -284,6 +289,14 @@ the documented status, code, and field.
     document). Each discrepancy is listed here as one entry with an opaque tracker reference, the
     affected field, and the escalation status, and never with a loan ID or value. The feature is
     not done while any entry here is unresolved.
+- **Rewritten loans (for Farzin)**: In SPI, rewriting a loan creates a new loan row on the same
+  contract, and the old row stays with a non-active status. When a caller asks for the old,
+  rewritten loan's ID, what should the API return?
+  - (a) The old loan row's own balance summary, with its non-active status.
+  - (b) The current (new) loan's balance summary on the same contract.
+  - (c) An error.
+  - *Status*: Open, awaiting Farzin's decision. No answer has been chosen; the plan and tests
+    must not assume one.
 
 ## Assumptions
 
@@ -291,15 +304,16 @@ the documented status, code, and field.
   screen. Requesting balances as of a past or future date is out of scope for this feature.
 - The caller credential mechanism (issuer, format, and how a caller's allowed tenants are
   recorded) is chosen in the plan; the contract shows it as a bearer credential until then.
-- The loan ID is treated as an opaque identifier up to 50 characters, matched exactly as the SPI
-  Application identifies it.
+- The loan ID is the SPI loan record's numeric ID (a positive whole number), not free text. Its
+  exact maximum value follows the SPI loan record ID's data type, confirmed in the plan.
 - Loan status is returned as the text the SPI Application shows; this feature does not define a
   fixed list of statuses.
 - "Active loan" means a loan whose SPI status is exactly "Active" (LoanStatusId = 1). Delinquent
   loans keep the Active status in SPI, because past due is calculated from payments and is not
   stored as a status, so delinquent loans are inside the SC-001 parity scope. Loans in non-active
   statuses (for example paid off, cancelled, or old loan rows left behind when a loan is
-  rewritten) are still returned by the API but are outside the SC-001 parity scope.
+  rewritten) are outside the SC-001 parity scope. Paid-off and cancelled loans are still returned
+  by the API; what is returned for an old rewritten loan row is an open question.
 - Loans are in a single currency per tenant; no currency conversion is needed.
 - Other bucket names are configured per tenant (client), not per loan.
 - The SPI Application's Balance Summary screen is the system of record for every returned value.
