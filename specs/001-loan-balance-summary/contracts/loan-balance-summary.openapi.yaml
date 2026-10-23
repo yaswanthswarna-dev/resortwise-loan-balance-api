@@ -104,10 +104,10 @@ components:
       type: http
       scheme: bearer
       description: |
-        Caller credential presented as a bearer token. The exact credential mechanism (token
-        issuer, format, and how a caller's allowed tenants are determined) is decided in the
-        plan and this description will be updated to match. Missing or invalid credentials
-        return `401 UNAUTHENTICATED`.
+        A per-caller API key sent as `Authorization: Bearer <api-key>`. Each caller has its
+        own key, issued by the operator of the deployment. The service stores only a hash of
+        each key and maps each caller to the tenants it is allowed. Missing or invalid
+        credentials return `401 UNAUTHENTICATED`.
   parameters:
     TenantId:
       name: X-Tenant-Id
