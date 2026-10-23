@@ -27,12 +27,15 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
 
 ## Database rules
 
-- **Never touch SPI objects.** Do not create, alter, drop, or write to SPI tables, stored
-  procedures, or functions.
+- **Never change SPI.** ResortWise never changes SPI Application code or SPI database objects
+  (tables, views, stored procedures, functions). Do not create, alter, drop, or write to them.
+  The SPI Excel loan engine is one example and is never modified.
 - **New database objects go only in the `rw` schema.** ResortWise may add views and tables there,
   and nowhere else.
-- **The API reads SPI data only through `rw` views.** Application code never queries SPI tables or
-  calls SPI procedures or functions, directly or indirectly.
+- **`rw` views may call SPI functions read-only**, so SPI logic is reused instead of rebuilt. No
+  `rw` object may call an SPI procedure or anything that writes data.
+- **The API reads SPI data only through `rw` views.** Application code never queries SPI tables
+  and never calls SPI procedures or functions itself.
 - **Tests may call SPI procedures and functions read-only for parity.** Tests may call them only
   against the local test databases, only to get parity reference values. Tests never call any SPI
   procedure that writes data. This exception never applies to application code.
@@ -47,8 +50,8 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
 - **Test-setup scripts change data only in `AlphaPMS_ResortWise_B`.** They never change data in
   `AlphaPMS_ResortWise` or in a client database, and they never create, alter, or drop SPI
   objects.
-- **`AlphaPMS_ResortWise` is the parity reference and stays exactly as restored.** No script may
-  ever change data in it.
+- **`AlphaPMS_ResortWise` is the parity reference and stays exactly as restored.** Its data never
+  changes: no script may ever change data in it. Adding `rw` objects to it is allowed.
 - Tenant isolation tests use `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. A test-setup
   script changes or removes some loans in `AlphaPMS_ResortWise_B` so the two databases return
   different results.
@@ -77,8 +80,10 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
    Never return data from another tenant. Isolation tests use at least two tenant databases
    (`AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` locally) and prove one tenant cannot read
    another tenant's loans.
-3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules). The only
-   exceptions are test-setup scripts, which may change data in `AlphaPMS_ResortWise_B` only (see
+3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules).
+   ResortWise never changes SPI Application code or SPI database objects. `rw` views may call SPI
+   functions read-only; the application itself never calls SPI procedures or functions. The only
+   other exceptions are test-setup scripts, which may change data in `AlphaPMS_ResortWise_B` only (see
    [Test data rules](#test-data-rules)), and tests, which may call SPI procedures and functions
    read-only against the local test databases for parity reference values, never one that
    writes data.
