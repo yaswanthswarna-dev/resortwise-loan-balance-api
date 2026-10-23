@@ -56,7 +56,7 @@ Remove-Variable api, ref
   only the read-only SPI procedures in research R4. Never grant it `EXECUTE` on any other
   procedure, because a procedure's own writes would bypass `db_denydatawriter`.
 - Users and grants change no data or SPI object definitions. Granting `EXECUTE` on SPI
-  procedures to `rw_parity_ref` is waiting on Farzin's confirmation (plan, O3).
+  procedures to `rw_parity_ref` is allowed (plan, O3, closed 2026-10-23).
 
 ## 2. Prepare tenant B
 

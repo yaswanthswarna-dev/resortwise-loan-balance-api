@@ -5,10 +5,11 @@
 **Input**: Feature specification from `specs/001-loan-balance-summary/spec.md`
 
 **Status of this plan**: Design complete for the reduced scope (loan ID, loan status, as-of date,
-principal balance). Farzin's decisions D1–D11 are closed (see [Decisions](#decisions)). Two
-points are open for Farzin: O1, the principal parity reference, where Principle IV is **pending
-Farzin's decision** between two options; O2, the non-active principal rule (spec FR-008a); and
-O3, test-only permissions on SPI procedures. All three are waiting on Farzin. Neither blocks the tasks that do not depend on it.
+principal balance). Farzin's decisions D1–D11 are closed (see [Decisions](#decisions)). O1, O2,
+and O3 were decided on 2026-10-23 and are closed (see
+[Open points for Farzin](#open-points-for-farzin)): O1 is option (b), the SQL function as the
+principal parity reference with a documented Principle IV deviation; O2 confirms principal `0.00`
+for non-active records; O3 allows the test-only users and grants. No open point blocks any task.
 
 ## Summary
 
@@ -79,7 +80,7 @@ be the new loan's principal, which FR-008a forbids.
    remaining principal, so the contract-level value is that record's own principal.
 2. **`L` is not active** (an old record left behind by a rewrite, and also paid off, written off,
    or cancelled): the view does **not** call the function, and `PrincipalBalance` is `0.00`.
-   *Pending Farzin's confirmation* (O2, spec FR-008a).
+   Decided in O2 (spec FR-008a).
    The old record's principal was moved to the new loan when the contract was rewritten, so it
    has no principal of its own left. This matches the SPI Application, which shows 0 for every
    balance field of paid-off and written-off loans.
@@ -129,13 +130,14 @@ D8 (which principal value is the reference) is answered by the rule above and by
 
 | ID | Point | Status |
 | --- | --- | --- |
-| O1 | The Balance Summary tab's Principal Remaining is **shown from the Excel engine**: the screen loads the SQL value first and then overwrites it with the engine's value. The API reads the SQL function. Principle IV requires automated tests to prove parity with the value the screen **shows**. Because the view and an SQL-path reference reach the same SPI function, a test against the SQL path cannot detect a case where the engine differs from SQL. The 5-loan manual check on 2026-10-22 showed the engine and SQL values matched. | **Pending Farzin's decision** between options (a) and (b) below. Not decided in this plan. |
-| O2 | Non-active loan records return principal `0.00` (rule 2 above, spec FR-008a). | **Waiting on Farzin**: confirmation, informed by the per-status screen check. Not decided in this plan. |
-| O3 | The test setup creates database users in `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` and grants the test-only `rw_parity_ref` login `EXECUTE` on four read-only SPI procedures (quickstart step 1). This changes no data and no object definitions, so it reads as consistent with Principle III and "exactly as restored", but it adds permissions on SPI objects. | **Waiting on Farzin**: explicit confirmation. Not decided in this plan. |
+| O1 | The Balance Summary tab's Principal Remaining is **shown from the Excel engine**: the screen loads the SQL value first and then overwrites it with the engine's value. The API reads the SQL function. Principle IV requires automated tests to prove parity with the value the screen **shows**. Because the view and an SQL-path reference reach the same SPI function, a test against the SQL path cannot detect a case where the engine differs from SQL. The 5-loan manual check on 2026-10-22 showed the engine and SQL values matched. | **Closed (2026-10-23): option (b).** The Excel loan engine is not used in any way, because ResortWise never changes or runs SPI Application code, and the constitution allows tests to call only SPI procedures and functions. The parity test uses the SPI SQL function path as the principal reference. The gap is a documented deviation from Principle IV in [Complexity Tracking](#complexity-tracking), backed by the 5-loan manual screen check, with Farzin's pull request approval as the sign-off. |
+| O2 | Non-active loan records return principal `0.00` (rule 2 above, spec FR-008a). | **Closed (2026-10-23): confirmed.** `0.00` matches what the screen shows. T038 checks the other non-active statuses privately before merge; any status that does not show 0 goes to Farzin. |
+| O3 | The test setup creates database users in `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` and grants the test-only `rw_parity_ref` login `EXECUTE` on four read-only SPI procedures (quickstart step 1). This changes no data and no object definitions, but it adds permissions on SPI objects. | **Closed (2026-10-23): allowed.** The users and grants add permissions only and change no data or objects, which fits "exactly as restored" and Farzin's rule that tests may call SPI procedures read-only. `rw_parity_ref` is still never granted `EXECUTE` on any procedure that writes data. |
 
-**O1 options** (not decided here):
+**O1 options** (option (b) chosen):
 
-- **(a) Engine reference in local-only parity tests.** The local parity test runs the SPI Excel
+- **(a) Engine reference in local-only parity tests.** *Not chosen: ResortWise never runs SPI
+  Application code, and the engine is not an SPI procedure or function.* The local parity test runs the SPI Excel
   loan engine (`SPILoanExcelEngine.GetLoanSummary`) read-only, from a local, uncommitted SPI
   Application install whose path comes from an environment variable, to get the value the screen
   shows, and compares it with the API. The engine is never modified, and it never runs in the
@@ -144,14 +146,15 @@ D8 (which principal value is the reference) is answered by the rule above and by
   its workbook for every local run, and new tasks for the engine harness. Principle III's test
   exception names SPI procedures and functions only, so Farzin should also say whether running
   the engine in tests needs a constitution note.
-- **(b) SQL function as the reference, with a documented deviation.** The parity test keeps the
+- **(b) SQL function as the reference, with a documented deviation.** *Chosen.* The parity test keeps the
   SQL path (`lrGetTransactionActivity`, second result set) as the reference. The gap between the
   shown engine value and the SQL value is recorded as a deviation from Principle IV in
   [Complexity Tracking](#complexity-tracking), backed by the 5-loan manual check, with Farzin's
   approval in pull request review as the sign-off. Principle IV is not NON-NEGOTIABLE, so it can
   be justified this way. The engine feature can add an engine-based check later.
 
-The principal part of the parity test and the PR gate depend on this decision; see tasks.md.
+With option (b), no engine-harness tasks are needed; T031 compares principal with the SQL path
+(see tasks.md).
 
 ## Constitution Check
 
@@ -163,16 +166,15 @@ Checked against constitution v1.4.0.
 | --- | --- | --- |
 | I. API first | One public endpoint under `/v1`, documented in the committed OpenAPI contract. The contract is published with the repository, not served by the API, and a unit test checks that it matches the app. No internal endpoints. | PASS |
 | II. Tenant isolation and authorization | API key → caller → allowed tenants; tenant → one connection string name. Checks in fixed order before any data read. Unknown tenant answers like a forbidden one. Isolation tests use both local databases. The API's database login has SELECT on schema `rw` only. The API has no anonymous endpoint (the contract is not served). | PASS |
-| III. SPI schema read-only | New objects only in `rw`, by versioned scripts. Here "versioned" means committed to git and reviewed, so the bootstrap script counts even though it has no `V###` number. That includes the journal table `rw.SchemaVersions`, which the bootstrap script creates (not DbUp). The API login can read only `rw`, and a database test proves it cannot read SPI objects. `rw.LoanPrincipalBalance` selects from one SPI function, `dbo.lrFnGetBalanceSummary`, read-only. No `rw` object calls an SPI procedure or anything that writes data. Application code queries `rw` views only and never calls SPI procedures or functions itself. No SPI Application code or SPI database object is changed; the Excel engine is not used. Tests call SPI procedures read-only, locally, through a separate test-only reference login that is read-only on SPI objects; the users and `EXECUTE` grants that setup needs are waiting on Farzin's confirmation (O3). The test-setup script changes data in `AlphaPMS_ResortWise_B` only. | PASS |
-| IV. Parity with the SPI Application | Field-by-field parity test over every active loan in `AlphaPMS_ResortWise`. Status is checked against the screen's procedures. For principal, the shown value comes from the engine; the reference is O1 option (a) or (b), recorded openly and not chosen silently. | **Pending Farzin's decision** (O1) |
+| III. SPI schema read-only | New objects only in `rw`, by versioned scripts. Here "versioned" means committed to git and reviewed, so the bootstrap script counts even though it has no `V###` number. That includes the journal table `rw.SchemaVersions`, which the bootstrap script creates (not DbUp). The API login can read only `rw`, and a database test proves it cannot read SPI objects. `rw.LoanPrincipalBalance` selects from one SPI function, `dbo.lrFnGetBalanceSummary`, read-only. No `rw` object calls an SPI procedure or anything that writes data. Application code queries `rw` views only and never calls SPI procedures or functions itself. No SPI Application code or SPI database object is changed; the Excel engine is not used. Tests call SPI procedures read-only, locally, through a separate test-only reference login that is read-only on SPI objects; the users and `EXECUTE` grants that setup needs are allowed (O3, closed). The test-setup script changes data in `AlphaPMS_ResortWise_B` only. | PASS |
+| IV. Parity with the SPI Application | Field-by-field parity test over every active loan in `AlphaPMS_ResortWise`. Status is checked against the screen's procedures. For principal, the shown value comes from the engine; per O1 option (b), the reference is the SPI SQL function path, and the gap is recorded openly as a deviation in [Complexity Tracking](#complexity-tracking). | PASS with documented deviation (O1) |
 | V. Public repo hygiene | No SPI source, function logic, formulas, or form paths committed. Config placeholders only. Synthetic fixtures. Parity values read at run time. Key hashes only, and only in local config. | PASS |
 | VI. Stable error contract | Codes fixed in the contract; one error writer; messages are constants with no exception text. | PASS |
 | VII. Tested against SPI data | Unit tests on GitHub (`Category!=Database`); database tests local only; the PR run summary reports counts only. Setup script checks `DB_NAME()` first and changes only `AlphaPMS_ResortWise_B`. Applying `rw` scripts to `AlphaPMS_ResortWise` adds views only and changes no data. | PASS |
 | VIII. URL-path versioning | `/v1` prefix. The reduced field set is fixed before first release. Adding the engine fields later as optional fields is not breaking. | PASS |
 
-**Gate result**: PASS for Principles I–III and V–VIII. Principle IV is **pending Farzin's
-decision** on O1. With option (a) it passes with no deviation; with option (b) it needs the
-deviation entry in Complexity Tracking and approval in PR review.
+**Gate result**: PASS for Principles I–III and V–VIII. Principle IV passes with the documented
+deviation in Complexity Tracking (O1 option (b)); Farzin's approval in PR review is the sign-off.
 
 **Post-design re-check (after Phase 1)**: same result. data-model.md and the contract match the
 reduced scope. The only SPI call inside a `rw` view is the read-only function call above, and the
@@ -247,9 +249,8 @@ database tests (Principle VII). `db/rw` holds every versioned `rw` script (Princ
 
 ## Complexity Tracking
 
-No constitution violations are justified in this plan yet. If Farzin chooses O1 option (b), the
-Principle IV deviation is recorded here before merge:
+One deviation is justified in this plan (O1 option (b), decided 2026-10-23):
 
 | Deviation | Why needed | Evidence | Sign-off |
 | --- | --- | --- | --- |
-| *(only if O1 option (b) is chosen)* Principle IV: the principal parity reference is the SQL path, not the engine value the screen shows | The engine is SPI Application code that needs Windows and the SPI workbook; reusing the SQL function keeps the API in the container and inside `rw` views | 5-loan manual check on 2026-10-22: engine and SQL values matched (details kept privately) | Farzin, in pull request review |
+| Principle IV: the principal parity reference is the SPI SQL function path (`lrGetTransactionActivity`, second result set), not the Excel engine value the screen shows | The Excel loan engine is SPI Application code. ResortWise never changes or runs SPI Application code, and the constitution allows tests to call only SPI procedures and functions, so the engine cannot be the reference. Reusing the SQL function also keeps the API in the container and inside `rw` views | 5-loan manual screen check on 2026-10-22: engine and SQL values matched (details kept privately) | Farzin's approval of the pull request |

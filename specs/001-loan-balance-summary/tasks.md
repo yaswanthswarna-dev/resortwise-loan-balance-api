@@ -34,11 +34,11 @@ its own.
 - Only `tests/db/setup/*.sql` may change data, only in `AlphaPMS_ResortWise_B`, and it is run by
   hand (quickstart step 2), never by the test run.
 
-**Open decisions, waiting on Farzin** (plan, Open points for Farzin): **O1**, the principal
-parity reference, option (a), the engine run read-only in local parity tests, or option (b), the
-SQL path with a documented deviation. **O2**, the non-active principal rule (`0.00`). **O3**, the
-test-only users and `EXECUTE` grants on SPI procedures. None is decided here. Tasks that depend on
-them say so.
+**Decisions O1–O3, closed 2026-10-23** (plan, Open points for Farzin): **O1**, option (b): the
+principal parity reference is the SPI SQL function path, with a documented Principle IV deviation;
+the Excel engine is not used in any way. **O2**: non-active loan records return principal `0.00`.
+**O3**: the test-only users and `EXECUTE` grants on read-only SPI procedures are allowed. No task
+waits on an open decision.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -77,7 +77,7 @@ these, because no loan data may be read before the credential and tenant checks 
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Confirm the SPI schema locally with read-only metadata queries against `AlphaPMS_ResortWise` (restore it first if missing; it was not restored on the local instances during planning): (a) the data type of `lrLoanReceivable.LoanId` (research R8); (b) the loan status type table and its name column, and the `SalesContractId` column (research R9); (c) the type of `dbo.lrFnGetBalanceSummary` (inline table-valued or scalar), its parameter types, its principal output column, and **that column's data type, including precision and scale** (research R2); (d) a **count only** of contracts with more than one `LoanStatusId = 1` loan record, which must be 0; (e) the list of distinct non-active loan status names (names only, no counts per loan); (f) a **count only** of permissions granted to `public` or `guest` on SPI objects (any count is covered by the `DENY` in quickstart step 1, and T028 proves it). If (d) is not 0, stop and send the count privately to Farzin (plan, per-loan-record rule). Keep the status list from (e) in a private local file outside the repository (for example under git-ignored `TestResults/`), not in `research.md`, unless the names are confirmed to be standard SPI names. Record the other findings as names and types only, never data or function logic, in `specs/001-loan-balance-summary/research.md` (R2, R8, R9), and remove the *(confirm)* marks in `specs/001-loan-balance-summary/data-model.md`
+- [ ] T007 Confirm the SPI schema locally with read-only metadata queries against `AlphaPMS_ResortWise` (restore it first if missing; it was not restored on the local instances during planning): (a) the data type of `lrLoanReceivable.LoanId` (research R8); (b) the loan status type table and its name column, and the `SalesContractId` column (research R9); (c) the type of `dbo.lrFnGetBalanceSummary` (inline table-valued or scalar), its parameter types, its principal output column, and **that column's data type, including precision and scale** (research R2); (d) a **count only** of contracts with more than one `LoanStatusId = 1` loan record, which must be 0; (e) the list of distinct non-active loan status names (names only, no counts per loan); (f) a **count only** of permissions granted to `public` or `guest` on SPI objects (any count is covered by the `DENY` in quickstart step 1, and T028 proves it); (g) the owner of each SPI object the `rw` views use (the tables in T009 and `dbo.lrFnGetBalanceSummary`), owner names only, each of which must be `dbo` for ownership chaining (research R9). If (d) is not 0, stop and send the count privately to Farzin (plan, per-loan-record rule). If any owner in (g) is not `dbo`, stop and send the object and owner names to Farzin before T009. Keep the status list from (e) in a private local file outside the repository (for example under git-ignored `TestResults/`), not in `research.md`, unless the names are confirmed to be standard SPI names. Record the other findings as names and types only, never data or function logic, in `specs/001-loan-balance-summary/research.md` (R2, R8, R9), and remove the *(confirm)* marks in `specs/001-loan-balance-summary/data-model.md`
 - [ ] T008 Create the bootstrap script `db/rw/bootstrap/create_schema_and_journal.sql` with two batches: a plain `CREATE SCHEMA rw AUTHORIZATION dbo` (no existence check), then `CREATE TABLE rw.SchemaVersions` with the columns DbUp's SQL Server journal expects for the DbUp version in T002 (an identity primary key, `ScriptName nvarchar(255) NOT NULL`, `Applied datetime NOT NULL`; check the column names against that DbUp version). It creates nothing else (research R9)
 - [ ] T009 Create `db/rw/V001__view_loan.sql`: `CREATE OR ALTER VIEW rw.Loan` with one row per loan record and columns `LoanId`, `LoanStatusId`, `LoanStatusName`, `SalesContractId`, read from `lrLoanReceivable` and the status type table confirmed in T007. It reads SPI tables only and calls no SPI function or procedure (data-model.md, `rw.Loan`)
 - [ ] T010 Implement `tools/ResortWise.RwMigrator/Program.cs`: a console that takes `--connection-env <ENV VAR NAME>` and reads the connection string from that environment variable. Before DbUp: if `SCHEMA_ID('rw')` is null, run `db/rw/bootstrap/create_schema_and_journal.sql` (embedded resource, split on `GO`); if schema `rw` exists but `OBJECT_ID('rw.SchemaVersions')` is null, stop with an error and change nothing. Then run DbUp with `JournalToSqlTable("rw", "SchemaVersions")`, which finds the existing table and does not create it, applying `db/rw/V###__*.sql` (embedded resources) in order. The bootstrap script is never passed to DbUp. Print script names only, never the connection string
@@ -121,8 +121,8 @@ each active loan and compare every field with the parity references read automat
 
 - [ ] T029 [P] [US1] Write `UnitTests/Contract/ContractConsistencyTests.cs`: load `specs/001-loan-balance-summary/contracts/loan-balance-summary.openapi.yaml` (linked into the UnitTests project as a `None` item with `CopyToOutputDirectory`) with Microsoft.OpenApi.Readers; the app's routes equal the contract's paths; the `Error.code` enum equals the `ErrorCodes` constants; `LoanBalanceSummary` required fields are exactly `loanId`, `loanStatus`, `asOfDate`, `principalBalance` and match the response model
 - [ ] T030 [P] [US1] Write `UnitTests/Loans/BalanceSummaryEndpointTests.cs` with `WebApplicationFactory` and an in-memory fake `ILoanBalanceRepository`: 200 body has exactly the four fields; `principalBalance` is serialized with two decimal places, including `0.00` (FR-006); a negative principal is returned unchanged; the body contains no payoff field and none of the out-of-scope fields (FR-007)
-- [ ] T031 [P] [US1] Write `DbTests/Parity/ActiveLoanParityTests.cs`: for every loan record with `LoanStatusId = 1` in `AlphaPMS_ResortWise` (read-only `SELECT` on `RW_REF_A`), call the API through tenant A and compare: `loanStatus` with `lrGetLoanDetails` (status ID) and `lrGetLoanStatusTypes` (name) on `RW_REF_A`, exact ordinal string; `asOfDate` equals `CAST(GETDATE() AS date)` read on `RW_REF_A` just before or just after the request; `principalBalance`, exact `decimal` at 2 places, against the reference **Farzin chooses for O1**: with option (b), `PrincipalRemaining` from the second result set of `lrGetTransactionActivity` on `RW_REF_A`; with option (a), stop and add the engine-harness tasks (plan, O1 option (a)) before writing this comparison. All SPI calls are read-only. Failures name the loan ID and field only in `TestResults/`. Report the count to `RunSummary` (SC-001, FR-021, research R4)
-- [ ] T032 [P] [US1] Write `DbTests/Parity/NonActiveLoanTests.cs`: for every loan record with `LoanStatusId <> 1` in `AlphaPMS_ResortWise` (selected on `RW_REF_A`), the API returns 200, the record's own status name, and `principalBalance` `0.00` (FR-008a; plan, per-loan-record rule; pending Farzin's confirmation, O2)
+- [ ] T031 [P] [US1] Write `DbTests/Parity/ActiveLoanParityTests.cs`: for every loan record with `LoanStatusId = 1` in `AlphaPMS_ResortWise` (read-only `SELECT` on `RW_REF_A`), call the API through tenant A and compare: `loanStatus` with `lrGetLoanDetails` (status ID) and `lrGetLoanStatusTypes` (name) on `RW_REF_A`, exact ordinal string; `asOfDate` equals `CAST(GETDATE() AS date)` read on `RW_REF_A` just before or just after the request; `principalBalance`, exact `decimal` at 2 places, against `PrincipalRemaining` from the second result set of `lrGetTransactionActivity` on `RW_REF_A` (O1 option (b); the Excel engine is not used). All SPI calls are read-only. Failures name the loan ID and field only in `TestResults/`. Report the count to `RunSummary` (SC-001, FR-021, research R4)
+- [ ] T032 [P] [US1] Write `DbTests/Parity/NonActiveLoanTests.cs`: for every loan record with `LoanStatusId <> 1` in `AlphaPMS_ResortWise` (selected on `RW_REF_A`), the API returns 200, the record's own status name, and `principalBalance` `0.00` (FR-008a; plan, per-loan-record rule; O2)
 
 ### Implementation for User Story 1
 
@@ -131,7 +131,7 @@ each active loan and compare every field with the parity references read automat
 - [ ] T035 [P] [US1] Create `Api/Loans/Models/LoanBalanceSummaryResponse.cs` with exactly `loanId` (int64), `loanStatus` (string), `asOfDate` (date, `yyyy-MM-dd`), `principalBalance` (decimal, two places), and `Api/Loans/Models/LoanBalanceRow.cs` for the repository result
 - [ ] T036 [US1] Implement `Api/Loans/ILoanBalanceRepository.cs` and `Api/Loans/LoanBalanceRepository.cs`: one parameterized Dapper query joining `rw.Loan` and `rw.LoanPrincipalBalance` on `LoanId` with `WHERE LoanId = @LoanId`, through `TenantConnectionFactory`; it references `rw.` objects only and returns null when no row exists
 - [ ] T037 [US1] Implement `Api/Loans/BalanceSummaryEndpoint.cs` and map `GET /v1/loans/{loanId}/balance-summary` in `Api/Program.cs`: read through the repository and return the four fields; set `loanId` on the audit context; no recomputation or rounding beyond the view's (FR-003)
-- [ ] T038 [US1] Manual check, not committed: in the SPI Application, open the Balance Summary tab for one loan record of **each** non-active status found in T007 (e), including an old record left behind by a rewrite, in `AlphaPMS_ResortWise`, and note whether Principal Remaining shows 0. Keep the results private and send them to Farzin; any status that does not show 0 goes to Farzin, and the rule (O2) is settled before merge (plan). Record only "done, results sent privately" in the PR, with no loan IDs, statuses per loan, or values
+- [ ] T038 [US1] Manual check, not committed: in the SPI Application, open the Balance Summary tab for one loan record of **each** non-active status found in T007 (e), including an old record left behind by a rewrite, in `AlphaPMS_ResortWise`, and note whether Principal Remaining shows 0. Keep the results private and send them to Farzin. O2 (`0.00`) is decided; any status that does not show 0 goes to Farzin before merge (plan). Record only "done, results sent privately" in the PR, with no loan IDs, statuses per loan, or values
 
 **Checkpoint**: User Story 1 is fully functional; parity and non-active tests pass locally
 
@@ -215,7 +215,7 @@ documented status, code, and field.
 - [ ] T054 [P] Update `specs/001-loan-balance-summary/checklists/requirements.md` for the reduced scope: remove items about the out-of-scope fields and Other bucket names
 - [ ] T055 Walk through `specs/001-loan-balance-summary/quickstart.md` end to end on the local databases (apply scripts and create logins, prepare tenant B, create keys, configure, run, smoke checks, tests) and fix any step that is wrong in `specs/001-loan-balance-summary/quickstart.md`
 - [ ] T056 Run the full local test suite with `RW_DB_TESTS=1` and the quickstart step 7 variables (unit and database) and `tools/load-check.ps1`; all tests pass with 0 parity mismatches and p95 under 1 s. Keep `TestResults/run-summary.txt` for the PR (date, database name, loans checked, passed and failed counts only)
-- [ ] T057 Before the PR, record Farzin's decisions in `specs/001-loan-balance-summary/plan.md`: O1 option (a) or (b), and update Principle IV in the Constitution Check to match (with option (b), fill in the Complexity Tracking deviation row); O2 confirmed or changed, and remove the "pending Farzin's confirmation" marks in `specs/001-loan-balance-summary/spec.md` once confirmed; O3 confirmed or changed. Mark O1 and O2 closed in the spec's Open Questions. Run `git diff --cached` for secrets and real data before every commit
+- [X] T057 Before the PR, record the decisions in `specs/001-loan-balance-summary/plan.md` and `specs/001-loan-balance-summary/spec.md`: O1 option (b) with the Principle IV deviation in Complexity Tracking, O2 confirmed, O3 allowed, and O1–O3 closed in the spec's Open Questions (done 2026-10-23). If T038 finds a status that does not show 0, update O2 here after Farzin's answer. Run `git diff --cached` for secrets and real data before every commit
 - [ ] T058 Open the pull request to `main` with the run summary from T056 and the T038 note ("manual per-status check done, results sent privately"), with no loan values or client data. With O1 option (b), the PR review approval is Farzin's sign-off on the deviation. After merge, set **Status** to `Done` in `specs/001-loan-balance-summary/spec.md`
 
 ---
@@ -227,14 +227,15 @@ documented status, code, and field.
 - **Setup (Phase 1)**: No dependencies; can start immediately
 - **Foundational (Phase 2)**: Depends on Setup; BLOCKS all user stories. T007 needs
   `AlphaPMS_ResortWise` restored locally, and T009, T033, T038, T047, T051, and T052 depend on
-  its findings. T011 needs T008–T010. T026 and T028 need T011
+  its findings. T011 needs T008–T010. T026 and T028 need T011. O3 is closed, so T011 and every
+  database task after it wait on no decision
 - **User Stories (Phases 3–6)**: All depend on Foundational
 - **Polish (Phase 7)**: Depends on all user stories
 
 ### User Story Dependencies
 
 - **US1 (P1)**: After Foundational. No dependency on other stories. The principal comparison in
-  T031 depends on Farzin's O1 decision; with option (a), new engine-harness tasks come first
+  T031 uses the SQL path (O1 option (b)), so no engine-harness tasks are needed
 - **US2 (P1)**: After Foundational. Its tests use the fake repository and valid loan IDs, so it
   does not need US1 or US4
 - **US3 (P1)**: After Foundational and US1 (it compares real balance summaries across tenants)
@@ -244,10 +245,10 @@ documented status, code, and field.
 
 - Tests are written first and fail before implementation
 - `rw` scripts before the repository, the repository before the endpoint
-- T038 (manual per-status check) and T057 (Farzin's decisions) must be done before the PR (T058)
-- T032 and T033 depend on O2 (non-active principal `0.00`), which is waiting on Farzin. T038's
-  per-status screen check feeds into that decision; if Farzin changes O2, update T032 and T033
-- T011 and T028 depend on O3 (test-only users and grants), which is waiting on Farzin
+- T038 (manual per-status check) and T057 (decisions recorded) must be done before the PR (T058)
+- T032 and T033 follow O2 (non-active principal `0.00`, decided). If T038 finds a status that
+  does not show 0 and Farzin changes O2, update T032 and T033
+- T011 and T028 follow O3 (test-only users and grants, allowed)
 
 ### Parallel Opportunities
 
@@ -288,7 +289,7 @@ Task: "T035 Response model in src/ResortWise.LoanBalance.Api/Loans/Models/LoanBa
 4. **STOP and VALIDATE**: run the US1 parity and non-active tests locally, and do the T038
    per-status screen check
 5. Not releasable yet: the constitution requires the isolation and error-code tests (US2–US4)
-   before merge, and Principle IV is pending Farzin's O1 decision
+   before merge, and the Principle IV deviation (O1) needs Farzin's PR approval
 
 ### Incremental Delivery
 
@@ -297,7 +298,7 @@ Task: "T035 Response model in src/ResortWise.LoanBalance.Api/Loans/Models/LoanBa
 3. US2 → refusal paths proven
 4. US3 → tenant isolation proven
 5. US4 → input errors proven
-6. Polish → local run summary, Farzin's decisions recorded, PR
+6. Polish → local run summary, decisions recorded (T057, done), PR
 
 ---
 

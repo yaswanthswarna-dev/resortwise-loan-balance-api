@@ -179,11 +179,11 @@ the documented status, code, and field.
   existence (404).
 - **Loan exists but is not active** (any SPI status other than exactly "Active", for example paid
   off or cancelled): the summary is still returned, with the status the SPI Application shows
-  and principal balance `0.00` (FR-008a; *pending Farzin's confirmation*).
+  and principal balance `0.00` (FR-008a; decided in O2).
   Parity success (SC-001) is measured only on loans whose status is "Active".
 - **Old loan record left behind by a rewrite**: the API works per loan record, so the old loan ID
   returns that loan record's own balance summary with its non-active status and principal balance
-  `0.00` (FR-008a; *pending Farzin's confirmation*), never the new loan's summary on the same
+  `0.00` (FR-008a; decided in O2), never the new loan's summary on the same
   contract. It is outside the SC-001 parity scope because it is not active.
 - **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
   payments), so it is inside the SC-001 parity scope.
@@ -236,8 +236,8 @@ the documented status, code, and field.
   year-to-date totals are not returned. A non-active loan record (any status other than exactly
   "Active", including an old record left behind by a rewrite) returns principal balance `0.00`,
   because the SPI function the API reuses returns one principal per contract, which belongs to
-  the contract's active record (see the plan's per-loan-record rule). *Pending Farzin's
-  confirmation.*
+  the contract's active record (see the plan's per-loan-record rule). This matches what the SPI
+  Application screen shows for a non-active loan record (decided in O2).
 
 **Authentication, authorization, and tenancy**
 
@@ -307,7 +307,9 @@ the documented status, code, and field.
 - **SC-001**: For 100% of active loans (SPI status exactly "Active", including delinquent loans)
   in the `AlphaPMS_ResortWise` test database, including loans with conflicting values on the same
   screen, every returned field matches its FR-003 parity source for that loan, as read
-  automatically by the parity test (FR-021). Zero mismatches are allowed.
+  automatically by the parity test (FR-021). Zero mismatches are allowed. For principal balance,
+  the reference is the SPI SQL function path, not the Excel engine value the screen shows (O1,
+  a documented deviation from Principle IV in the plan's Complexity Tracking).
 - **SC-002**: For every loan the test-setup script changes or removes in `AlphaPMS_ResortWise_B`,
   the tenant mapped to `AlphaPMS_ResortWise_B` returns a different result (different values, or
   `LOAN_NOT_FOUND`) than the tenant mapped to `AlphaPMS_ResortWise`.
@@ -326,17 +328,24 @@ the documented status, code, and field.
 
 ## Open Questions for Clarify
 
-Two questions are **open, waiting on Farzin** (raised 2026-10-23 in the plan):
+Three points raised on 2026-10-23 in the plan were decided on 2026-10-23 and are closed. See
+[plan.md, Open points for Farzin](plan.md#open-points-for-farzin).
 
-- **O1. Principal parity reference**: *Status*: Open, waiting on Farzin. The Balance Summary tab
-  shows the Excel engine's Principal Remaining, while the API reads the SQL function. Option (a)
-  runs the engine read-only in local parity tests; option (b) keeps the SQL function as the
-  reference with a documented deviation from Principle IV. See
-  [plan.md, Open points for Farzin](plan.md#open-points-for-farzin). Option (a) would also need
-  FR-021 updated.
-- **O2. Non-active principal**: *Status*: Open, waiting on Farzin. A non-active loan record
-  returns principal `0.00` (FR-008a), informed by a private per-status screen check. See
-  [plan.md, Open points for Farzin](plan.md#open-points-for-farzin).
+- **O1. Principal parity reference**: *Status*: Closed, option (b). The Balance Summary tab
+  shows the Excel engine's Principal Remaining, while the API reads the SQL function. The Excel
+  loan engine is not used in any way: ResortWise never changes or runs SPI Application code, and
+  the constitution allows tests to call only SPI procedures and functions. The parity test uses
+  the SPI SQL function path as the principal reference (FR-021 unchanged). This is a documented
+  deviation from Principle IV in the plan's Complexity Tracking, backed by the 5-loan manual
+  screen check on 2026-10-22, with Farzin's pull request approval as the sign-off.
+- **O2. Non-active principal**: *Status*: Closed. A non-active loan record returns principal
+  `0.00` (FR-008a), because that matches what the screen shows. The private per-status screen
+  check (tasks T038) checks the other non-active statuses before merge.
+- **O3. Test-only database users and grants**: *Status*: Closed, allowed. The test setup may
+  create the test database users and grant the test-only reference login `EXECUTE` on the
+  read-only SPI procedures in `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. They add
+  permissions only and change no data or object definitions, which fits "exactly as restored"
+  and the rule that tests may call SPI procedures read-only.
 
 The questions below were answered by Farzin on 2026-10-22 and are closed. See
 [Farzin's decisions](#farzins-decisions-2026-10-22).

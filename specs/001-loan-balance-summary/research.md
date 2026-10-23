@@ -128,7 +128,8 @@ allowed before release.
 - `CREATE SCHEMA rw AUTHORIZATION dbo` lets ownership chaining give the API login access through
   `rw` views **without any permission on SPI objects**. Ownership chaining also covers the view's
   call to `dbo.lrFnGetBalanceSummary` (both owned by `dbo`), so the API login needs no permission
-  on the SPI function either.
+  on the SPI function either. This holds only if every SPI object the views reach is owned by
+  `dbo`; T007 (g) confirms the owners (names only) before the views are written.
 - **Logins per test database** (created locally, quickstart step 1; never committed, no
   passwords in the repository):
   - **API login** (`rw_api`): `SELECT ON SCHEMA::rw` only, plus `DENY SELECT, EXECUTE ON
@@ -218,6 +219,7 @@ with a simple load script.
 
 ## Open questions
 
-D1–D11 are closed (see [plan.md](plan.md#decisions)). O1, the principal parity reference, is open
-for Farzin's confirmation and does not block tasks. R2, R8, and R9 contain schema confirmations
+D1–D11 are closed (see [plan.md](plan.md#decisions)). O1–O3 were decided on 2026-10-23 and are
+closed (see [plan.md](plan.md#open-points-for-farzin)); O1 is option (b), the SQL path as the
+principal reference. R2, R8, and R9 contain schema confirmations
 that the first implementation task resolves locally.
