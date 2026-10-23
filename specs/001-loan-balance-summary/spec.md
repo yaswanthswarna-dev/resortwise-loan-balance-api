@@ -55,15 +55,23 @@
   procedures or queries the screen uses against `AlphaPMS_ResortWise`, and compares them with the
   API response (FR-021). The exact procedures are identified in the plan.
 
+### Farzin's scope reduction (2026-10-23)
+
+- This slice returns only loan ID, loan status, as-of date, and principal balance. Interest, late
+  fees, service fees, unapplied amount, Others 1 to 5 and their names, total balance, past-due
+  amount, and days past due are removed and will be a separate feature (see
+  [Out of Scope](#out-of-scope)). FR-004 and FR-005 are withdrawn; other requirement IDs are
+  unchanged.
+- The as-of date is the SQL Server's current date for now (see [Assumptions](#assumptions)).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Get a loan's balance summary (Priority: P1)
 
 A ResortWise screen or an external system, acting for one SPI client (tenant), asks for the
-balance summary of one loan. It receives the loan ID, loan status, as-of date, principal balance,
-interest, late fees, service fees, unapplied amount, the five "Other" buckets (each with its
-client-configured name), total balance, past-due amount, and days past due. Every value matches
-what the SPI Application shows for that loan in the parity source screen section (see FR-003).
+balance summary of one loan. It receives the loan ID, loan status, as-of date, and principal
+balance. Every value matches what the SPI Application shows for that loan in the parity source
+screen section (see FR-003).
 
 **Why this priority**: This is the feature's whole purpose. Without matching values, no consumer
 can trust ResortWise over the SPI Application.
@@ -77,14 +85,10 @@ for the same loan, read automatically from SPI as described in FR-021.
 1. **Given** an authorized caller and an active loan in the caller's tenant, **When** the caller
    requests that loan's balance summary, **Then** the response contains every listed field and
    each value equals the parity source value for that loan (FR-003).
-2. **Given** a client that has named Other bucket 1 (for example "Maintenance Fees") and left
-   buckets 2 to 5 unnamed, **When** the caller requests a loan's balance summary, **Then** bucket 1
-   is returned with the client's name and buckets 2 to 5 are returned as "Other 2" to "Other 5",
-   each marked as a default name.
-3. **Given** a loan with no amount in some buckets, **When** the caller requests its balance
-   summary, **Then** those amounts are returned as zero, not omitted, and all five Other buckets
-   are always present in order 1 to 5.
-4. **Given** any successful response, **Then** it contains no payoff amount.
+2. **Given** a loan with no principal remaining, **When** the caller requests its balance
+   summary, **Then** the principal balance is returned as zero, not omitted.
+3. **Given** any successful response, **Then** it contains no payoff amount and none of the
+   out-of-scope balance fields (see [Out of Scope](#out-of-scope)).
 
 ---
 
@@ -180,19 +184,13 @@ the documented status, code, and field.
   returns that loan record's own balance summary with its non-active status, never the new loan's
   summary on the same contract. It is outside the SC-001 parity scope because it is not active.
 - **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
-  payments), so it is inside the SC-001 parity scope, and its past-due amount and days past due
-  must match the Loan Summary Information tab, Current Payment Information section.
+  payments), so it is inside the SC-001 parity scope.
 - **Test loan with conflicting values on the same screen** (for example two different monthly
   payments): stays in the SC-001 parity scope. The API only has to match the parity source
   section, and the conflicting fields are not returned. Suspected SPI defects are noted
   privately, not in this repository.
-- **Client named a bucket with only spaces**: treated as unnamed; the default "Other N" is
-  returned.
-- **Client named a bucket "Other 3" for bucket 3**: returned as the client's name, marked as not a
-  default name.
-- **Negative amounts** (for example an overpayment or credit shown by the SPI Application): returned
-  as the SPI Application shows them; the API does not clamp or recompute.
-- **Loan not past due**: past-due amount is zero and days past due is 0.
+- **Negative principal balance** (for example an overpayment shown by the SPI Application):
+  returned as the SPI Application shows it; the API does not clamp or recompute.
 - **Tenant database unreachable**: HTTP 503 `TENANT_UNAVAILABLE`; the API never falls back to
   another tenant's database.
 - **Unexpected failure**: HTTP 500 `INTERNAL_ERROR` with no internal details.
@@ -208,29 +206,27 @@ the documented status, code, and field.
 
 - **FR-001**: The system MUST let an authorized caller request the balance summary of one loan by
   its loan ID, under the `/v1` version, as defined in the API contract. Balances are always stated
-  as of the SPI Application's current business date; the request takes no date input, and the
-  response returns the as-of date used.
-- **FR-002**: A successful response MUST contain: loan ID, loan status, as-of date, principal
-  balance, interest, late fees, service fees, unapplied amount, Others 1 to 5, total balance,
-  past-due amount, and days past due.
+  as of the current date (see [Assumptions](#assumptions)); the request takes no date input, and
+  the response returns the as-of date used.
+- **FR-002**: A successful response MUST contain exactly: loan ID, loan status, as-of date, and
+  principal balance.
 - **FR-003**: Every returned value MUST equal the value the SPI Application shows for the same
   loan, tenant, and as-of date (today) in its parity source:
   - Principal balance: Principal Remaining on the Balance Summary tab of the Transaction Activity
     screen. (Payments Remaining also comes from this tab but is not a returned field.)
-  - Every other returned field: the Loan Summary Information tab, Current Payment Information
+  - Loan ID and loan status: the Loan Summary Information tab, Current Payment Information
     section, as of today.
+  - As-of date: the SQL Server's current date (see [Assumptions](#assumptions)).
   - Payoff Information (as of the Valid Through date) is not a parity source; it belongs to the
     payoff feature.
 
   The API MUST NOT recompute, round differently, or reinterpret SPI values.
-- **FR-004**: Others 1 to 5 MUST always be returned as five entries in bucket order, each with a
-  bucket number, a name, an indicator of whether the name is the default, and an amount.
-- **FR-005**: Each Other bucket's name MUST be the name the client configured for that bucket. Only
-  when the client has not named the bucket (no name, or a blank name) MUST the name fall back to
-  "Other N", where N is the bucket number.
-- **FR-006**: Amounts MUST be exact decimal values with two decimal places; zero amounts MUST be
-  returned as zero, not omitted.
-- **FR-007**: The response MUST NOT include a payoff amount.
+- **FR-004**: *Withdrawn (scope reduction, 2026-10-23).* Others 1 to 5 are out of scope.
+- **FR-005**: *Withdrawn (scope reduction, 2026-10-23).* Other bucket names are out of scope.
+- **FR-006**: The principal balance MUST be an exact decimal value with two decimal places; a zero
+  balance MUST be returned as zero, not omitted.
+- **FR-007**: The response MUST NOT include a payoff amount or any of the fields listed in
+  [Out of Scope](#out-of-scope).
 - **FR-008**: The feature is read-only. No request may change any data.
 - **FR-008a**: The API works per loan record. A request for a loan ID returns that loan record's
   own summary and status, including an old loan record left behind by a rewrite (non-active
@@ -294,11 +290,9 @@ the documented status, code, and field.
   (the SPI loan record's numeric ID), with a status. The same loan ID may exist in more than one
   tenant with unrelated data. When a loan is rewritten, SPI creates a new loan record on the same
   contract and the old record stays with a non-active status.
-- **Loan Balance Summary**: The read-only set of balance values the SPI Application shows for one
-  loan record as of today, in the parity source sections of FR-003: principal, interest, late fees, service fees, unapplied amount,
-  Others 1 to 5, total balance, past-due amount, and days past due.
-- **Other Bucket**: One of five client-configurable balance categories. Has a bucket number (1 to
-  5), an optional client-configured name, and an amount per loan.
+- **Loan Balance Summary**: The read-only values the SPI Application shows for one loan record as
+  of today, in the parity source sections of FR-003: loan ID, loan status, as-of date, and
+  principal balance.
 
 ## Success Criteria *(mandatory)*
 
@@ -359,10 +353,19 @@ All open questions below were answered by Farzin on 2026-10-22 and are closed. S
   because the API only has to match the chosen screen section and the conflicting fields are not
   returned. Suspected SPI defects are noted privately, not in this repository.
 
+## Out of Scope
+
+- **Other balance fields**: interest, late fees, service fees, unapplied amount, Others 1 to 5 and
+  their client-configured names, total balance, past-due amount, and days past due. The SPI Excel
+  loan engine calculates these values; they will be a separate feature later.
+- **Payoff amount**: a separate feature.
+- **Balances as of a past or future date**: the request takes no date input.
+
 ## Assumptions
 
-- The as-of date is the current business date the SPI Application uses for the Balance Summary
-  screen. Requesting balances as of a past or future date is out of scope for this feature.
+- The as-of date is the SQL Server's current date for now. A hosted server may run in a different
+  time zone than the resort, so near midnight the as-of date can differ from the resort's local
+  date. Requesting balances as of a past or future date is out of scope for this feature.
 - The caller credential mechanism (issuer, format, and how a caller's allowed tenants are
   recorded) is chosen in the plan; the contract shows it as a bearer credential until then.
 - The loan ID is the SPI loan record's numeric ID (a positive whole number), not free text. Its
@@ -376,7 +379,6 @@ All open questions below were answered by Farzin on 2026-10-22 and are closed. S
   rewritten) are outside the SC-001 parity scope, but are still returned by the API with their
   own summary and status (FR-008a).
 - Loans are in a single currency per tenant; no currency conversion is needed.
-- Other bucket names are configured per tenant (client), not per loan.
 - The SPI Application is the system of record for every returned value, through the parity
   source sections in FR-003.
 - Data is read from SPI only through `rw` views created by versioned scripts in this repository;
@@ -384,4 +386,3 @@ All open questions below were answered by Farzin on 2026-10-22 and are closed. S
 - Tests that use `AlphaPMS_ResortWise` or `AlphaPMS_ResortWise_B` run locally only, and the
   test-setup script that changes `AlphaPMS_ResortWise_B` follows the constitution's test data
   rules.
-- Payoff amount is out of scope and will be a separate feature.

@@ -29,10 +29,11 @@ paths:
       description: |
         Returns the same values the SPI Application shows for the loan record in the caller's
         tenant, as of today: principal balance from Principal Remaining on the Balance Summary
-        tab of the Transaction Activity screen, and every other field from the Loan Summary
+        tab of the Transaction Activity screen, and loan status from the Loan Summary
         Information tab, Current Payment Information section. Works per loan record: an old loan
         record left behind by a rewrite returns its own summary and non-active status. Payoff
-        amount is not part of this response.
+        amount and the other balance fields (interest, fees, unapplied, Others 1 to 5, total
+        balance, past due) are not part of this response; they will be a separate feature.
 
         Check order: credential (401), tenant header (400), tenant authorization (403), loan ID
         validation (400), loan lookup (404).
@@ -166,21 +167,13 @@ components:
       description: |
         One loan record's balance summary as of today, matching the SPI Application screen
         sections described on the operation.
-        Amounts are exact decimal values in the loan's currency with two decimal places, as the
-        SPI Application shows them. Amounts are not recomputed by the API.
+        The principal balance is an exact decimal value in the loan's currency with two decimal
+        places, as the SPI Application shows it. It is not recomputed by the API.
       required:
         - loanId
         - loanStatus
         - asOfDate
         - principalBalance
-        - interest
-        - lateFees
-        - serviceFees
-        - unappliedAmount
-        - others
-        - totalBalance
-        - pastDueAmount
-        - daysPastDue
       properties:
         loanId:
           type: integer
@@ -196,75 +189,17 @@ components:
           type: string
           format: date
           description: >-
-            The SPI Application's current business date, which the balances are stated as of.
-            Callers cannot request another date.
+            The date the balance is stated as of: currently the database server's current date.
+            A hosted server may run in a different time zone than the resort, so near midnight
+            this can differ from the resort's local date. Callers cannot request another date.
           example: '2026-10-22'
         principalBalance:
           $ref: '#/components/schemas/Amount'
-        interest:
-          $ref: '#/components/schemas/Amount'
-        lateFees:
-          $ref: '#/components/schemas/Amount'
-        serviceFees:
-          $ref: '#/components/schemas/Amount'
-        unappliedAmount:
-          $ref: '#/components/schemas/Amount'
-        others:
-          type: array
-          description: |
-            The five "Other" balance buckets, always five entries, ordered by `bucket` 1 to 5.
-          minItems: 5
-          maxItems: 5
-          items:
-            $ref: '#/components/schemas/OtherBucket'
-        totalBalance:
-          $ref: '#/components/schemas/Amount'
-        pastDueAmount:
-          $ref: '#/components/schemas/Amount'
-        daysPastDue:
-          type: integer
-          format: int32
-          minimum: 0
-          description: Number of days the loan is past due; 0 when not past due.
-          example: 0
       example:
         loanId: 100245
         loanStatus: Active
         asOfDate: '2026-10-22'
         principalBalance: 12500.00
-        interest: 85.40
-        lateFees: 0.00
-        serviceFees: 15.00
-        unappliedAmount: 0.00
-        others:
-          - { bucket: 1, name: Maintenance Fees, nameIsDefault: false, amount: 0.00 }
-          - { bucket: 2, name: Other 2, nameIsDefault: true, amount: 0.00 }
-          - { bucket: 3, name: Other 3, nameIsDefault: true, amount: 0.00 }
-          - { bucket: 4, name: Other 4, nameIsDefault: true, amount: 0.00 }
-          - { bucket: 5, name: Other 5, nameIsDefault: true, amount: 0.00 }
-        totalBalance: 12600.40
-        pastDueAmount: 0.00
-        daysPastDue: 0
-    OtherBucket:
-      type: object
-      required: [bucket, name, nameIsDefault, amount]
-      properties:
-        bucket:
-          type: integer
-          minimum: 1
-          maximum: 5
-          description: The bucket number, 1 to 5.
-        name:
-          type: string
-          description: |
-            The name the client configured for this bucket. When the client has not named it
-            (no name, or a blank name), this is the default "Other N", where N is the bucket
-            number.
-        nameIsDefault:
-          type: boolean
-          description: True when `name` is the "Other N" fallback rather than a client-configured name.
-        amount:
-          $ref: '#/components/schemas/Amount'
     Amount:
       type: number
       format: decimal
