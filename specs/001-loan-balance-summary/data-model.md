@@ -38,24 +38,16 @@ See [contracts/loan-balance-summary.openapi.yaml](contracts/loan-balance-summary
 
 ### LoanBalanceSummary
 
-| Field | Type | Source (see [plan.md](plan.md#field-sources-design-question)) |
+| Field | Type | Source (see [plan.md](plan.md#field-sources)) |
 | --- | --- | --- |
 | `loanId` | int64 | Request, confirmed by `rw.Loan` |
 | `loanStatus` | string | `rw.Loan.LoanStatusName` |
-| `asOfDate` | date | Database server date (D10) |
-| `principalBalance` | decimal(2) | `rw.LoanPrincipalRemaining` (D1, D8) |
-| `interest`, `serviceFees` | decimal(2) | Calculator (D2, D4) |
-| `lateFees` | decimal(2) | Calculator (D2) |
-| `unappliedAmount` | decimal(2) | Calculator (D2, D7) |
-| `others[5]` | OtherBucket | Names from `rw.OtherBucketName`; amounts from calculator (D2, D9) |
-| `totalBalance` | decimal(2) | Calculator (D2, D6) |
-| `pastDueAmount` | decimal(2) | Calculator (D2, D6) |
-| `daysPastDue` | int32 | **No parity source** (D5) |
+| `asOfDate` | date | `rw.LoanPrincipalBalance.AsOfDate` (SQL Server's current date) |
+| `principalBalance` | decimal(2) | `rw.LoanPrincipalBalance.PrincipalBalance` |
 
-Rules: all amounts are present, with zero for none (FR-006). Paid-off and written-off loans return
-0 for every due and balance field (D8). Other buckets are always 5, ordered 1–5. A name that is
-null, empty, or whitespace becomes `Other N` with `nameIsDefault = true`; any other name is
-returned as stored, with `nameIsDefault = false` (FR-005, edge cases).
+Rules: all four fields are always present; a zero principal is returned as `0.00` (FR-006). A
+non-active loan record, including an old record left behind by a rewrite, returns its own status
+and principal `0.00` (FR-008a; plan, per-loan-record rule).
 
 ### Error
 
@@ -63,12 +55,13 @@ returned as stored, with `nameIsDefault = false` (FR-005, edge cases).
 
 ## `rw` views (versioned scripts in `db/rw`)
 
-Every view reads SPI tables only. No view calls an SPI function or procedure (Principle III,
-pending D1). Every view is filtered by `LoanId` from the application query.
+Every view is filtered by `LoanId` from the application query. The only SPI function a view may
+call is `dbo.lrFnGetBalanceSummary`, read-only (constitution v1.4.0, Principle III). No view calls
+an SPI procedure or anything that writes data.
 
 ### `rw.Loan`
 
-One row per loan record.
+One row per loan record. Read from SPI tables only.
 
 | Column | From |
 | --- | --- |
@@ -76,26 +69,19 @@ One row per loan record.
 | `LoanStatusId` | `lrLoanReceivable` |
 | `LoanStatusName` | Loan status type table *(confirm)* |
 | `SalesContractId` | `lrLoanReceivable` |
-| `ResortId` | Contract's resort *(confirm table)* |
-| `IsTerminal` | Status is paid off or written off *(confirm status IDs)* |
 
-### `rw.OtherBucketName`
+### `rw.LoanPrincipalBalance`
 
-One row per resort and bucket number (1–5). Built from `lrControl.othLabel1..5` by unpivot.
-Joined to `rw.Loan` on `ResortId`. A missing row means default names (D9).
+One row per loan record.
 
-### `rw.LoanPrincipalRemaining`
+| Column | Value |
+| --- | --- |
+| `LoanId` | `lrLoanReceivable` |
+| `AsOfDate` | `CAST(GETDATE() AS date)`, the same clock the function call uses |
+| `PrincipalBalance` | `LoanStatusId = 1`: the principal from `dbo.lrFnGetBalanceSummary(LoanId, today)` *(confirm function type and column)*. Any other status: `0.00`, and the function is not called |
 
-One row per loan record: contract-level principal remaining as of the end of today, reproducing
-`dbo.lrGetPrincipalRemaining` from tables (P-B). Blocked on D1/D8.
-
-### Engine input views (blocked on D2)
-
-These views expose the same data the engine reads through `lrExcelGetLoanById`,
-`lrExcelGetTransactions`, `lrExcelGetControlSettings`, and `lrExcelGetContractPaidTotals`, read
-directly from SPI tables. Proposed names: `rw.EngineLoan`, `rw.EngineTransaction`,
-`rw.EngineControlSetting`, `rw.EngineContractPaidTotal`. Columns are fixed after the procedures'
-definitions are read locally.
+The function returns a per-contract value; the status rule is what keeps the result per loan
+record (plan, per-loan-record rule).
 
 ### `rw.SchemaVersions` (table)
 

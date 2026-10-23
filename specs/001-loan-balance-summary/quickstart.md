@@ -8,8 +8,6 @@ variables.
 
 - .NET 8 SDK, Docker, `sqlcmd`
 - Local SQL Server with `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` restored
-- For engine parity (only if D3 is approved): a local SPI Application install. Its path is set in
-  `RW_SPI_ENGINE_PATH`.
 
 ## 1. Apply the `rw` scripts to both test databases
 
@@ -18,8 +16,9 @@ dotnet run --project tools/ResortWise.RwMigrator -- --connection-env RW_MIGRATE_
 dotnet run --project tools/ResortWise.RwMigrator -- --connection-env RW_MIGRATE_B
 ```
 
-Expected: `db/rw` scripts are applied in order and journaled in `rw.SchemaVersions`. No SPI object
-changes. Grant the API login `SELECT ON SCHEMA::rw` only.
+Expected: `db/rw` scripts are applied in order and journaled in `rw.SchemaVersions`. Only `rw`
+objects are added; no SPI object and no data changes, so `AlphaPMS_ResortWise` still counts as
+"exactly as restored". Grant the API login `SELECT ON SCHEMA::rw` only.
 
 ## 2. Prepare tenant B
 
@@ -64,7 +63,8 @@ docker build -t resortwise-loan-balance . ; docker run --env-file <local env fil
 | Valid key, unknown tenant | 403 `TENANT_FORBIDDEN` (identical body) |
 | `/v1/loans/007/balance-summary` | 400 `LOAN_ID_INVALID`, field `loanId` |
 | A loan ID that does not exist | 404 `LOAN_NOT_FOUND` |
-| An active loan | 200; body matches the [contract](contracts/loan-balance-summary.openapi.yaml) |
+| An active loan | 200; `loanId`, `loanStatus`, `asOfDate`, `principalBalance` only, matching the [contract](contracts/loan-balance-summary.openapi.yaml) |
+| An old rewritten loan record | 200; its own non-active status, principal `0.00` |
 
 Each request writes exactly one JSON audit line to stdout, with no amounts.
 
@@ -75,6 +75,7 @@ dotnet test --filter "Category!=Database"          # what GitHub runs
 $env:RW_DB_TESTS = "1"; dotnet test --filter "Category=Database"   # local only
 ```
 
-Expected: parity has 0 mismatches over all active loans in `AlphaPMS_ResortWise` (SC-001), and
+Expected: parity has 0 mismatches over all active loans in `AlphaPMS_ResortWise` (SC-001), every
+non-active record returns principal `0.00`, and
 the isolation suite passes (SC-002, SC-003, SC-005). The test run prints the PR summary: date,
 database name, loans checked, passed and failed counts. Paste only that summary into the PR.

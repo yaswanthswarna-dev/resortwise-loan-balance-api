@@ -7,51 +7,40 @@ file paths are recorded. These details stay in a local, uncommitted analysis (Pr
 
 ## R1. Where each returned value comes from
 
-**Finding**: Of the returned fields, only loan status and the Other bucket names come straight
-from SPI tables. Principal Remaining has an SQL source (`dbo.lrGetPrincipalRemaining`, reached
-through `lrGetTransactionActivity` → `dbo.lrFnGetBalanceSummary`), but the value the screen
-finally shows comes from the Excel engine (`SPILoanExcelEngine.GetLoanSummary`). Every Current
-Payment Information amount comes from the Excel engine, which reads its inputs through
-`lrExcelGetLoanById`, `lrExcelGetTransactions`, `lrExcelGetControlSettings`, and
-`lrExcelGetContractPaidTotals`. The full per-field table is in
-[plan.md](plan.md#field-sources-design-question).
+**Finding**: Loan ID and loan status come straight from SPI tables. Principal Remaining has an
+SQL source: `lrGetTransactionActivity` (second result set) → `dbo.lrFnGetBalanceSummary(@LoanId,
+today)` → `dbo.lrGetPrincipalRemaining(@SalesContractId, end of today)`. The value the Balance
+Summary tab finally shows comes from the Excel engine (`SPILoanExcelEngine.GetLoanSummary`),
+which overwrites the SQL value (open point O1 in the plan). The as-of date is the SQL Server's
+current date (spec Assumptions). The per-field table is in [plan.md](plan.md#field-sources).
 
-**Consequence**: FR-003 ("MUST NOT recompute") and FR-021 ("call the same SPI stored procedures or
-queries") assume the values exist in the database. For most fields they do not. See D2 and D3 in
-the plan.
+**Consequence**: Every field in this scope has a database source, so FR-003 ("MUST NOT
+recompute") and FR-021 (parity from SPI procedures) hold without change. The fields the engine
+calculates are out of scope (spec Out of Scope).
 
 ## R2. Principal balance data access
 
-- **Decision (recommended, pending D1)**: P-B. Reimplement the contract-level principal
-  calculation in `rw.LoanPrincipalRemaining`, reading SPI tables directly.
-- **Rationale**: Small aggregation. Keeps application access free of SPI functions
-  (Principle III, "directly or indirectly"). Parity tests call the SPI function read-only as an
-  independent check.
-- **Alternatives considered**: P-A, a view selecting from `dbo.lrGetPrincipalRemaining`. It gives
-  exact SQL-path parity, but it is an indirect call to an SPI function from application code. It
-  is not allowed under constitution v1.3.0 and would need an amendment. Farzin decides (D1).
+- **Decision**: `rw.LoanPrincipalBalance` selects from `dbo.lrFnGetBalanceSummary` read-only
+  (former option P-A, now allowed by constitution v1.4.0, Principle III). The view applies the
+  per-loan-record rule in [plan.md](plan.md#principal-balance-and-the-per-loan-record-rule):
+  active records take the function's value; non-active records, including old rewritten records,
+  return `0.00` without calling the function.
+- **Rationale**: Reuses SPI's own logic instead of rebuilding it, so the value follows future SPI
+  changes to the function. The rule is needed because the function works per contract, while the
+  API works per loan record (FR-008a).
+- **Alternatives considered**: P-B, reimplementing the function from SPI tables. Dropped: it
+  copies SPI logic, which the amended constitution exists to avoid. `dbo.lrGetPrincipalRemaining`
+  called directly: it takes the contract, not the loan, so the view would need to resolve the
+  contract itself. Calling `dbo.lrFnGetBalanceSummary` with the loan ID matches the screen's
+  path exactly.
+- **To confirm locally** (first implementation task): the function's type (inline table-valued
+  or scalar) and output column; that no contract has more than one active loan record (count
+  only). See the plan for what happens if it does.
 
 ## R3. Excel-engine values
 
-- **Decision (recommended, pending D2)**: E-B. `rw` input views read the same data the four
-  `lrExcelGet*` procedures read, straight from SPI tables, and a pure C# `LoanSummaryCalculator`
-  reproduces the engine's Current Payment calculations.
-- **Rationale**: Inside Principle III; unit-testable on GitHub with synthetic data; runs in a
-  Linux container; one round trip to the database per request.
-- **Implementation notes** (no formulas recorded here):
-  - Port from the local engine and workbook. The implementer reads them locally and does not
-    commit them.
-  - Reproduce the spreadsheet's arithmetic: keep calculations in `double` where the workbook does,
-    and round with `MidpointRounding.AwayFromZero` where the workbook rounds, because the
-    spreadsheet's ROUND differs from .NET's default banker's rounding. Convert to `decimal(…,2)`
-    only at the output edge. Parity tests decide any doubt.
-  - "As of today" values use the as-of date passed in (D10). Never read the container clock
-    inside the calculator, so unit tests are deterministic.
-  - Paid-off and written-off loans return 0 for every due and balance field, as the SPI
-    Application does (D8).
-- **Alternatives considered**: E-A (T-SQL reimplementation; untestable on GitHub, hard to
-  maintain), E-C (run SPI engine in the service; breaks the container rule and Principle III's
-  intent), E-D (SPI exposes the values; outside our control, worth raising in parallel).
+Out of scope (spec Out of Scope). There is no engine calculator and there are no engine input
+views. D2–D7 and D9 move to the engine feature, which starts from the local analysis.
 
 ## R4. Parity references for tests (FR-021)
 
@@ -63,12 +52,9 @@ table) is **not** used.
 | --- | --- |
 | Active loan list | Read-only `SELECT` of loan IDs with `LoanStatusId = 1` (test code only) |
 | `loanStatus` | `lrGetLoanDetails` (`@LoanId`, `@SalesContractId`) for the status ID; `lrGetLoanStatusTypes` (through `lrGetLoanMasterInfo`) for the name |
-| `principalBalance` | Engine value (D3/D8), plus `lrGetTransactionActivity` second result set `PrincipalRemaining` as a cross-check |
-| `others[n].name` | `lrGetControlByResort` (`@ResortId` = contract's resort) |
-| Engine fields | `SPILoanExcelEngine.GetLoanSummary(LoanId, ValidThrough)` from a local SPI install, **only if D3 is approved**. The fields used are as of today, so ValidThrough does not affect them. |
-
-If D3 is not approved, no automated parity reference exists for the engine fields. Then
-FR-021/SC-001 cannot be met for them, and the spec must change.
+| `principalBalance` (active loans) | `lrGetTransactionActivity`, second result set, `PrincipalRemaining`. This is the screen's SQL path; the shown value comes from the engine (O1) |
+| `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the view returns `0.00` for every non-active record; the screen check for an old rewritten record is manual (plan) |
+| `asOfDate` | `CAST(GETDATE() AS date)` on the same connection, read before and after the request; the response must equal one of them (midnight-safe) |
 
 **Comparison rules**: exact `decimal` equality at 2 decimal places; strings exact, ordinal. A
 failure message names the loan ID and field. The results file goes to git-ignored `TestResults/`.
@@ -127,11 +113,14 @@ allowed before release.
 - `CREATE SCHEMA rw AUTHORIZATION dbo` lets ownership chaining give the API login access through
   `rw` views **without any permission on SPI tables**. The API login is granted `SELECT ON
   SCHEMA::rw` only. This enforces Principle III in the database, not only by convention.
+- Ownership chaining also covers the view's call to `dbo.lrFnGetBalanceSummary` (both owned by
+  `dbo`), so the API login needs no permission on the SPI function either.
 - A unit test (GitHub) scans `db/rw` and fails if any `CREATE`/`ALTER`/`DROP`/`INSERT`/`UPDATE`/
-  `DELETE`/`MERGE`/`EXEC` targets anything other than schema `rw`, or if a view references an SPI
-  function or procedure.
-- Exact SPI table and column names for the views (status type table, transaction table, contract
-  and resort columns) are **to be confirmed** from the local schema and the read-only procedures'
+  `DELETE`/`MERGE` targets anything other than schema `rw`, if any script contains `EXEC`, or if
+  a view references an SPI function not on an allowlist. The allowlist holds only
+  `dbo.lrFnGetBalanceSummary`; adding a function to it is a reviewed change.
+- Exact SPI table and column names for the views (status type table, contract column) are **to
+  be confirmed** from the local schema and the read-only procedures'
   definitions in the first implementation task.
 
 ## R10. Audit logging
@@ -158,12 +147,12 @@ at `GET /v1/openapi.yaml` (anonymous, no tenant). A unit test loads the contract
 ## R12. Tests
 
 - **Unit (GitHub)**: auth handler, registry validation, check order, loan ID parser, error
-  writer, audit fields, calculator with synthetic fixtures, contract consistency, script scanner,
+  writer, audit fields, contract consistency, script scanner (including the SPI function allowlist),
   full pipeline with an in-memory fake repository (`WebApplicationFactory`).
 - **Database (local only)**: `[Trait("Category","Database")]`. Each test skips with a clear
   message unless `RW_DB_TESTS=1`. CI runs `dotnet test --filter "Category!=Database"`.
   - *Parity*: every active loan in `AlphaPMS_ResortWise`, field by field, against the R4
-    references.
+    references; plus `0.00` principal for every non-active record.
   - *Isolation*: tenant A → `AlphaPMS_ResortWise`, tenant B → `AlphaPMS_ResortWise_B`. The fixture
     asserts `DB_NAME()` on each tenant connection before any test runs.
   - *End-to-end*: every error code through the real pipeline with real databases.
@@ -171,7 +160,8 @@ at `GET /v1/openapi.yaml` (anonymous, no tenant). A unit test loads the contract
   - First statement: `IF DB_NAME() <> N'AlphaPMS_ResortWise_B' THROW 50001, 'Wrong database', 1;`
     before any change. `SET XACT_ABORT ON`, one transaction.
   - Selects rows **by rule** on loan IDs (for example, `LoanId % 10 = 3` changed and
-    `LoanId % 10 = 7` removed). It contains no loan IDs or values. Changes are idempotent: they
+    `LoanId % 10 = 7` removed). Changed loans get data the principal function reads (for example
+    principal paid) or their status changed, so the principal or status differs from tenant A. It contains no loan IDs or values. Changes are idempotent: they
     set values derived from the rule, never increments, so a rerun gives the same state.
   - Changes only SPI **data** (no DDL on SPI objects). Removal deletes dependent rows in
     foreign-key order. The child tables are confirmed from the local schema.
@@ -187,14 +177,14 @@ excludes `appsettings.Local.json` and `*.Development.json`). CI: restore, build,
 
 ## R14. Performance
 
-One loan per request: one round trip that returns the loan, names, principal, and engine-input
-row sets (Dapper `QueryMultiple`), then an in-memory calculation. Connection pooling per tenant
-connection string. The SC-006 target (p95 < 1 s at 20 req/s total) is checked locally with a
-simple load script. Transaction volume per loan is small, so this is not a risk. The views must
-filter on loan ID so the predicate is pushed into the SPI tables' indexes.
+One loan per request: one query joining `rw.Loan` and `rw.LoanPrincipalBalance` on the loan ID
+(Dapper). Connection pooling per tenant connection string. The view must filter on loan ID before
+the function runs, so the function is evaluated for one loan only; the first implementation task
+checks the plan shape locally. The SC-006 target (p95 < 1 s at 20 req/s total) is checked locally
+with a simple load script.
 
 ## Open questions
 
-D1–D11 in [plan.md](plan.md#decisions-needed-from-farzin) are open. Each is for Farzin, except
-D10 and D11, which are minor confirmations. R8 and R9 contain two schema confirmations that the
-first implementation task resolves locally.
+D1–D11 are closed (see [plan.md](plan.md#decisions)). O1, the principal parity reference, is open
+for Farzin's confirmation and does not block tasks. R2, R8, and R9 contain schema confirmations
+that the first implementation task resolves locally.
