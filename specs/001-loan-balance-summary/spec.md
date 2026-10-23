@@ -24,7 +24,7 @@
   loans keep the Active status in SPI (past due is calculated from payments, not stored as a
   status), so they are inside the parity scope.
 - Q: Should callers be able to request a balance summary as of a specific date, or only as of the
-  SPI Application's current business date? → A: Current business date only. The response returns
+  SPI Application's current business date? → A: Current business date only (superseded 2026-10-23, see Assumptions). The response returns
   the as-of date used, and there is no date input.
 - Q: Should the API keep an audit record of every balance-summary request, and if so, how long?
   → A: A structured audit log entry for every request, including refused ones: time, caller ID,
@@ -178,11 +178,13 @@ the documented status, code, and field.
   credential (401), tenant header (400), tenant authorization (403), loan ID format (400), loan
   existence (404).
 - **Loan exists but is not active** (any SPI status other than exactly "Active", for example paid
-  off or cancelled): the summary is still returned, with the status the SPI Application shows.
+  off or cancelled): the summary is still returned, with the status the SPI Application shows
+  and principal balance `0.00` (FR-008a; *pending Farzin's confirmation*).
   Parity success (SC-001) is measured only on loans whose status is "Active".
 - **Old loan record left behind by a rewrite**: the API works per loan record, so the old loan ID
-  returns that loan record's own balance summary with its non-active status, never the new loan's
-  summary on the same contract. It is outside the SC-001 parity scope because it is not active.
+  returns that loan record's own balance summary with its non-active status and principal balance
+  `0.00` (FR-008a; *pending Farzin's confirmation*), never the new loan's summary on the same
+  contract. It is outside the SC-001 parity scope because it is not active.
 - **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
   payments), so it is inside the SC-001 parity scope.
 - **Test loan with conflicting values on the same screen** (for example two different monthly
@@ -231,7 +233,11 @@ the documented status, code, and field.
 - **FR-008a**: The API works per loan record. A request for a loan ID returns that loan record's
   own summary and status, including an old loan record left behind by a rewrite (non-active
   status). It never substitutes another loan record on the same contract. Last Payment and
-  year-to-date totals are not returned.
+  year-to-date totals are not returned. A non-active loan record (any status other than exactly
+  "Active", including an old record left behind by a rewrite) returns principal balance `0.00`,
+  because the SPI function the API reuses returns one principal per contract, which belongs to
+  the contract's active record (see the plan's per-loan-record rule). *Pending Farzin's
+  confirmation.*
 
 **Authentication, authorization, and tenancy**
 
@@ -320,7 +326,19 @@ the documented status, code, and field.
 
 ## Open Questions for Clarify
 
-All open questions below were answered by Farzin on 2026-10-22 and are closed. See
+Two questions are **open, waiting on Farzin** (raised 2026-10-23 in the plan):
+
+- **O1. Principal parity reference**: *Status*: Open, waiting on Farzin. The Balance Summary tab
+  shows the Excel engine's Principal Remaining, while the API reads the SQL function. Option (a)
+  runs the engine read-only in local parity tests; option (b) keeps the SQL function as the
+  reference with a documented deviation from Principle IV. See
+  [plan.md, Open points for Farzin](plan.md#open-points-for-farzin). Option (a) would also need
+  FR-021 updated.
+- **O2. Non-active principal**: *Status*: Open, waiting on Farzin. A non-active loan record
+  returns principal `0.00` (FR-008a), informed by a private per-status screen check. See
+  [plan.md, Open points for Farzin](plan.md#open-points-for-farzin).
+
+The questions below were answered by Farzin on 2026-10-22 and are closed. See
 [Farzin's decisions](#farzins-decisions-2026-10-22).
 
 - **Balance Summary vs Loan Summary screen discrepancies**: *Status*: Closed.

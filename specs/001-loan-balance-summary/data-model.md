@@ -78,14 +78,16 @@ One row per loan record.
 | --- | --- |
 | `LoanId` | `lrLoanReceivable` |
 | `AsOfDate` | `CAST(GETDATE() AS date)`, the same clock the function call uses |
-| `PrincipalBalance` | `LoanStatusId = 1`: the principal from `dbo.lrFnGetBalanceSummary(LoanId, today)` *(confirm function type and column)*. Any other status: `0.00`, and the function is not called |
+| `PrincipalBalance` | `LoanStatusId = 1`: the principal from `dbo.lrFnGetBalanceSummary(LoanId, today)` *(confirm function type, column, and column data type)*, cast to `decimal(19,2)` only if its scale is at most 2; otherwise rounded exactly as the screen does, confirmed by the parity test. Any other status: `0.00` (pending Farzin's confirmation, spec FR-008a), and the function is not called |
 
 The function returns a per-contract value; the status rule is what keeps the result per loan
 record (plan, per-loan-record rule).
 
 ### `rw.SchemaVersions` (table)
 
-The DbUp journal. It is the only `rw` table.
+The DbUp journal. It is the only `rw` table. It is created, together with schema `rw`, by the
+committed bootstrap script `db/rw/bootstrap/create_schema_and_journal.sql`, not by DbUp (research
+R9).
 
 ## State
 

@@ -34,7 +34,10 @@ calculates are out of scope (spec Out of Scope).
   contract itself. Calling `dbo.lrFnGetBalanceSummary` with the loan ID matches the screen's
   path exactly.
 - **To confirm locally** (first implementation task): the function's type (inline table-valued
-  or scalar) and output column; that no contract has more than one active loan record (count
+  or scalar), its principal output column, and that column's data type (precision and scale).
+  If the scale is at most 2, the view casts to `decimal(19,2)` and no rounding happens. If it is
+  greater than 2, the view rounds exactly as the screen does before the cast, and the parity
+  test confirms it (FR-003). Also confirm that no contract has more than one active loan record (count
   only). See the plan for what happens if it does.
 
 ## R3. Excel-engine values
@@ -54,7 +57,10 @@ table) is **not** used.
 | `loanStatus` | `lrGetLoanDetails` (`@LoanId`, `@SalesContractId`) for the status ID; `lrGetLoanStatusTypes` (through `lrGetLoanMasterInfo`) for the name |
 | `principalBalance` (active loans) | `lrGetTransactionActivity`, second result set, `PrincipalRemaining`. This is the screen's SQL path; the shown value comes from the engine (O1) |
 | `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the view returns `0.00` for every non-active record; the screen check for an old rewritten record is manual (plan) |
-| `asOfDate` | `CAST(GETDATE() AS date)` on the same connection, read before and after the request; the response must equal one of them (midnight-safe) |
+| `asOfDate` | `CAST(GETDATE() AS date)` on the reference connection, read before and after the request; the response must equal one of them (midnight-safe) |
+
+**Connections**: every reference call above uses the test-only **reference login**, never the
+API login (R9).
 
 **Comparison rules**: exact `decimal` equality at 2 decimal places; strings exact, ordinal. A
 failure message names the loan ID and field. The results file goes to git-ignored `TestResults/`.
@@ -108,20 +114,45 @@ allowed before release.
 
 ## R9. `rw` scripts and database permissions
 
-- Scripts in `db/rw/V###__name.sql`, applied in order by a DbUp console tool. The journal table is
-  `rw.SchemaVersions`, a table in `rw`, which is allowed. Views use `CREATE OR ALTER VIEW rw.…`.
+- **Bootstrap script** `db/rw/bootstrap/create_schema_and_journal.sql`, committed and
+  reviewed like every other `rw` script (Principle III: every `rw` object is created by a
+  versioned script in this repository). It has two batches: a plain
+  `CREATE SCHEMA rw AUTHORIZATION dbo`, then `CREATE TABLE rw.SchemaVersions` with the columns
+  DbUp's SQL Server journal expects (checked against the DbUp version used). It has no
+  existence checks. The migrator decides whether to run it: if schema `rw` does not exist, it
+  runs the bootstrap script once; if schema `rw` exists but `rw.SchemaVersions` does not, it stops
+  with an error and changes nothing.
+- **Versioned scripts** `db/rw/V###__name.sql`, applied in order by the DbUp console tool after
+  the bootstrap. DbUp journals to the existing `rw.SchemaVersions` and never creates it. Views use
+  `CREATE OR ALTER VIEW rw.…`.
 - `CREATE SCHEMA rw AUTHORIZATION dbo` lets ownership chaining give the API login access through
-  `rw` views **without any permission on SPI tables**. The API login is granted `SELECT ON
-  SCHEMA::rw` only. This enforces Principle III in the database, not only by convention.
-- Ownership chaining also covers the view's call to `dbo.lrFnGetBalanceSummary` (both owned by
-  `dbo`), so the API login needs no permission on the SPI function either.
-- A unit test (GitHub) scans `db/rw` and fails if any `CREATE`/`ALTER`/`DROP`/`INSERT`/`UPDATE`/
-  `DELETE`/`MERGE` targets anything other than schema `rw`, if any script contains `EXEC`, or if
-  a view references an SPI function not on an allowlist. The allowlist holds only
-  `dbo.lrFnGetBalanceSummary`; adding a function to it is a reviewed change.
+  `rw` views **without any permission on SPI objects**. Ownership chaining also covers the view's
+  call to `dbo.lrFnGetBalanceSummary` (both owned by `dbo`), so the API login needs no permission
+  on the SPI function either.
+- **Logins per test database** (created locally, quickstart step 1; never committed, no
+  passwords in the repository):
+  - **API login** (`rw_api`): `SELECT ON SCHEMA::rw` only, plus `DENY SELECT, EXECUTE ON
+    SCHEMA::dbo` so it inherits nothing from `public` or `guest` grants in the restored database
+    (ownership chaining through `rw` views is not affected). The API and every API request in the
+    database tests use it. A database test proves it cannot select from an SPI table, execute an
+    SPI procedure, or call an SPI function directly, and that it can read the `rw` views. This
+    enforces Principle III in the database, not only by convention.
+  - **Reference login** (`rw_parity_ref`), test-only: `db_datareader` and `db_denydatawriter`, plus
+    `EXECUTE` on the read-only SPI procedures listed in R4 and nothing else. Parity and isolation
+    tests use it to read reference values. Because a procedure's own writes would bypass
+    `db_denydatawriter` through ownership chaining, `EXECUTE` is granted only on procedures that
+    the screen analysis shows are SELECT-only.
+  - Applying `rw` scripts and running the tenant B setup script use a local owner-level
+    connection (Windows authentication), not either login.
+- A unit test (GitHub) scans `db/rw`, including `db/rw/bootstrap`, and fails if any
+  `CREATE`/`ALTER`/`DROP`/`INSERT`/`UPDATE`/`DELETE`/`MERGE` targets anything other than schema
+  `rw`, if any script contains `EXEC`, if a view references an SPI function not on an allowlist,
+  or if the bootstrap script creates anything other than schema `rw` and table
+  `rw.SchemaVersions`. The allowlist holds only `dbo.lrFnGetBalanceSummary`; adding a function to
+  it is a reviewed change.
 - Exact SPI table and column names for the views (status type table, contract column) are **to
-  be confirmed** from the local schema and the read-only procedures'
-  definitions in the first implementation task.
+  be confirmed** from the local schema and the read-only procedures' definitions in the first
+  implementation task.
 
 ## R10. Audit logging
 
@@ -134,15 +165,12 @@ details are never logged. A unit test asserts that no amount appears in audit ou
 
 ## R11. OpenAPI
 
-Contract-first. The committed YAML is the source of truth. It is copied into the image and served
-at `GET /v1/openapi.yaml` (anonymous, no tenant). A unit test loads the contract with
-`Microsoft.OpenApi.Readers` and checks that the app's routes, the error code enum, and the
-`ErrorCode` constants agree. No generated document replaces it.
-
-> Serving the contract is a second endpoint. It must be listed in the contract itself
-> (Principle I: an endpoint not in OpenAPI is not done), and it is exempt from tenant and
-> credential checks because it returns no tenant data. If reviewers disagree with that exemption,
-> drop the endpoint and publish the file with the repository instead.
+Contract-first. The committed YAML in `specs/001-loan-balance-summary/contracts/` is the source of
+truth and is published with the repository. The API does **not** serve it: every request must
+carry a tenant and a valid credential (Principle II), and an anonymous endpoint for the contract
+would break that rule. A unit test loads the contract with `Microsoft.OpenApi.Readers` and checks
+that the app's routes, the error code enum, and the `ErrorCode` constants agree. No generated
+document replaces it.
 
 ## R12. Tests
 
@@ -154,7 +182,9 @@ at `GET /v1/openapi.yaml` (anonymous, no tenant). A unit test loads the contract
   - *Parity*: every active loan in `AlphaPMS_ResortWise`, field by field, against the R4
     references; plus `0.00` principal for every non-active record.
   - *Isolation*: tenant A → `AlphaPMS_ResortWise`, tenant B → `AlphaPMS_ResortWise_B`. The fixture
-    asserts `DB_NAME()` on each tenant connection before any test runs.
+    asserts `DB_NAME()` on each tenant connection before any test runs. API requests use the API
+    login; reference reads use the reference login (R9).
+  - *Permissions*: the API login cannot read SPI objects (R9).
   - *End-to-end*: every error code through the real pipeline with real databases.
 - **Test-setup script** `tests/db/setup/B001__diverge_tenant_b.sql`:
   - First statement: `IF DB_NAME() <> N'AlphaPMS_ResortWise_B' THROW 50001, 'Wrong database', 1;`
@@ -165,8 +195,11 @@ at `GET /v1/openapi.yaml` (anonymous, no tenant). A unit test loads the contract
     set values derived from the rule, never increments, so a rerun gives the same state.
   - Changes only SPI **data** (no DDL on SPI objects). Removal deletes dependent rows in
     foreign-key order. The child tables are confirmed from the local schema.
-  - Run with an explicit `-d AlphaPMS_ResortWise_B`. The test fixture also refuses to run it
-    unless its connection's `DB_NAME()` is `AlphaPMS_ResortWise_B`.
+  - Run by hand with an explicit `-d AlphaPMS_ResortWise_B` and an owner-level local connection
+    (quickstart step 2). The test run does not execute it, so the database tests need no login
+    that can write. Before the isolation tests, the fixture checks through the reference login on
+    `AlphaPMS_ResortWise_B` that the rule's changes are present, and fails with "run quickstart
+    step 2" if not.
 
 ## R13. Container and CI
 
