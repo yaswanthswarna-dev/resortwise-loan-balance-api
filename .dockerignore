@@ -1,0 +1,25 @@
+# Never send secrets, local config, or test output into the image build.
+.git/
+.github/
+.vs/
+.vscode/
+.idea/
+.claude/
+.specify/
+**/bin/
+**/obj/
+**/TestResults/
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+**/*.Development.json
+**/*.env
+**/.env
+**/.env.*
+**/*.bak
+**/*.mdf
+**/*.ldf
+**/*.bacpac
+tests/
+tools/
+specs/
+db/

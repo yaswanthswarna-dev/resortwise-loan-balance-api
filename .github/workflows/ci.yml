@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore ResortWise.LoanBalance.sln
+
+      - name: Build
+        run: dotnet build ResortWise.LoanBalance.sln --no-restore -c Release
+
+      # Database tests run locally only (constitution Principle VII). No database, no secrets here.
+      - name: Unit tests
+        run: dotnet test ResortWise.LoanBalance.sln --no-build -c Release --filter "Category!=Database"
+
+      - name: Docker build
+        run: docker build -t resortwise-loan-balance:ci .

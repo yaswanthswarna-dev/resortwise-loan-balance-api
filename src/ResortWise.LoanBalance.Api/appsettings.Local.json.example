@@ -1,0 +1,22 @@
+{
+  "Callers": [
+    {
+      "Id": "caller-both",
+      "KeyHash": "<64 hex characters>",
+      "Tenants": [ "tenant-a", "tenant-b" ]
+    },
+    {
+      "Id": "caller-a-only",
+      "KeyHash": "<64 hex characters>",
+      "Tenants": [ "tenant-a" ]
+    }
+  ],
+  "Tenants": {
+    "tenant-a": { "ConnectionStringName": "TenantA" },
+    "tenant-b": { "ConnectionStringName": "TenantB" }
+  },
+  "ConnectionStrings": {
+    "TenantA": "<connection string as rw_api>",
+    "TenantB": "<connection string as rw_api>"
+  }
+}
