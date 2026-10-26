@@ -24,7 +24,16 @@ calculates are out of scope (spec Out of Scope).
   (former option P-A, now allowed by constitution v1.4.0, Principle III). The view applies the
   per-loan-record rule in [plan.md](plan.md#principal-balance-and-the-per-loan-record-rule):
   active records take the function's value; non-active records, including old rewritten records,
-  return `0.00` without calling the function.
+  return `NULL` without calling the function, and the API reports the principal as not available
+  (reason `LOAN_NOT_ACTIVE`). This is defined by `V003` (O2, decided 2026-10-26); `V002`, already
+  applied, returned `0.00` and is not edited.
+- **Per-loan principal (checked 2026-10-26, O2)**: the screen shows an old rewritten record's own
+  principal, which the SPI Excel loan engine calculates per loan record. No SPI function returns
+  it: a read-only search of SPI function names and parameter types, and of the definitions of the
+  two candidates that take a loan ID (`lrLoanToDatePrincipal`, `lrGetToDatePrincipal`), found
+  that both resolve the loan to its contract and work per contract, not per loan record.
+  Rebuilding the value from SPI tables would copy engine logic, so it
+  waits for the engine feature.
 - **Rationale**: Reuses SPI's own logic instead of rebuilding it, so the value follows future SPI
   changes to the function. The rule is needed because the function works per contract, while the
   API works per loan record (FR-008a).
@@ -58,7 +67,7 @@ table) is **not** used.
 | Active loan list | Read-only `SELECT` of loan IDs with `LoanStatusId = 1` (test code only) |
 | `loanStatus` | `lrGetLoanDetails` (`@Loanid int`, `@SalesContractId int`) for the status ID; `lrGetLoanStatusTypes` (no parameters) for the name |
 | `principalBalance` (active loans) | **Not compared automatically (deviation, decided 2026-10-26).** The planned reference, `lrGetTransactionActivity` (`@Ownerid char(10)`, `@SalesContractId int`; second result set, `PrincipalRemaining`), reaches the database `AlphaSales` at run time, and the reference login is not given access to it. `lrGetPrincipalRemaining` was rejected as a substitute because `dbo.lrFnGetBalanceSummary`, which `rw.LoanPrincipalBalance` uses, calls it, so it would not be an independent reference. Principal parity rests on the 5-loan manual screen check (plan, Complexity Tracking) |
-| `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the view returns `0.00` for every non-active record; the screen check for an old rewritten record is manual (plan) |
+| `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the API returns principal `null`, `principalBalanceAvailable` `false`, and reason `LOAN_NOT_ACTIVE` for every non-active record (O2). The screen check for old rewritten records was manual (T038, done 2026-10-26, details kept privately) |
 | `asOfDate` | `CAST(GETDATE() AS date)` on the reference connection, read before and after the request; the response must equal one of them (midnight-safe) |
 
 **Connections**: every reference call above uses the test-only **reference login**, never the
@@ -197,7 +206,8 @@ document replaces it.
 - **Database (local only)**: `[Trait("Category","Database")]`. Each test skips with a clear
   message unless `RW_DB_TESTS=1`. CI runs `dotnet test --filter "Category!=Database"`.
   - *Parity*: every active loan in `AlphaPMS_ResortWise`, field by field, against the R4
-    references; plus `0.00` principal for every non-active record.
+    references; plus, for every non-active record, principal `null`, not available, reason
+    `LOAN_NOT_ACTIVE` (O2).
   - *Isolation*: tenant A → `AlphaPMS_ResortWise`, tenant B → `AlphaPMS_ResortWise_B`. The fixture
     asserts `DB_NAME()` on each tenant connection before any test runs. API requests use the API
     login; reference reads use the reference login (R9).
@@ -208,7 +218,7 @@ document replaces it.
     before any change. `SET XACT_ABORT ON`, one transaction.
   - Selects rows **by rule** on loan IDs (decided 2026-10-26): every active record with
     `ID % 10 = 3` gets the lowest non-active status in use (one `UPDATE`; no amounts change), so
-    tenant B returns that status and `0.00`; exactly one record, the lowest ID with `ID % 10 = 7`,
+    tenant B returns that status with principal `null` and reason `LOAN_NOT_ACTIVE` (O2); exactly one record, the lowest ID with `ID % 10 = 7`,
     is removed to prove the 404. It contains no loan IDs or values. A rerun finds no active
     `ID % 10 = 3` record left and changes nothing. Tenant B is checked by these expected results,
     not by `lrGetTransactionActivity`.
@@ -247,5 +257,6 @@ with a simple load script.
 
 D1–D11 are closed (see [plan.md](plan.md#decisions)). O1–O3 were decided on 2026-10-23 and are
 closed (see [plan.md](plan.md#open-points-for-farzin)); O1 is option (b), the SQL path as the
-principal reference. R2, R8, and R9 contain schema confirmations
+principal reference. O2 was reopened and decided by Farzin on 2026-10-26 (option B: non-active
+principal `null`, reason `LOAN_NOT_ACTIVE`). R2, R8, and R9 contain schema confirmations
 that the first implementation task resolves locally.

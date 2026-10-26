@@ -64,6 +64,18 @@
   unchanged.
 - The as-of date is the SQL Server's current date for now (see [Assumptions](#assumptions)).
 
+### Farzin's decision on non-active principal (2026-10-26)
+
+- The earlier rule that a non-active loan record returns principal `0.00` was wrong. The manual
+  screen check (T038) found that the Balance Summary tab shows each old rewritten loan record's
+  own principal balance, not `0.00`, and only the SPI Excel loan engine calculates that value.
+- Option B: for every non-active loan record, the API returns its status, but
+  `principalBalance` is `null`, never `0.00`, with `principalBalanceAvailable` `false` and
+  `principalUnavailableReason` `LOAN_NOT_ACTIVE`, until the engine feature covers it.
+  "Rewritten" is the only non-active status in use in `AlphaPMS_ResortWise`. The other
+  non-active statuses get the same rule, because their screen value cannot be verified without
+  the engine. See FR-008a and O2.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Get a loan's balance summary (Priority: P1)
@@ -85,10 +97,15 @@ for the same loan, read automatically from SPI as described in FR-021.
 1. **Given** an authorized caller and an active loan in the caller's tenant, **When** the caller
    requests that loan's balance summary, **Then** the response contains every listed field and
    each value equals the parity source value for that loan (FR-003).
-2. **Given** a loan with no principal remaining, **When** the caller requests its balance
-   summary, **Then** the principal balance is returned as zero, not omitted.
+2. **Given** an active loan with no principal remaining, **When** the caller requests its
+   balance summary, **Then** the principal balance is returned as zero, not omitted or `null`.
 3. **Given** any successful response, **Then** it contains no payoff amount and none of the
    out-of-scope balance fields (see [Out of Scope](#out-of-scope)).
+4. **Given** a non-active loan record in the caller's tenant (for example an old record left
+   behind by a rewrite), **When** the caller requests its balance summary, **Then** the response
+   is HTTP 200 with the record's own status, `principalBalance` `null` (never `0.00`),
+   `principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE`
+   (FR-008a).
 
 ---
 
@@ -178,13 +195,18 @@ the documented status, code, and field.
   credential (401), tenant header (400), tenant authorization (403), loan ID format (400), loan
   existence (404).
 - **Loan exists but is not active** (any SPI status other than exactly "Active", for example paid
-  off or cancelled): the summary is still returned, with the status the SPI Application shows
-  and principal balance `0.00` (FR-008a; decided in O2).
+  off or cancelled): the summary is still returned, with the status the SPI Application shows,
+  principal balance `null` (never `0.00`), `principalBalanceAvailable` `false`, and
+  `principalUnavailableReason` `LOAN_NOT_ACTIVE` (FR-008a; decided in O2).
   Parity success (SC-001) is measured only on loans whose status is "Active".
 - **Old loan record left behind by a rewrite**: the API works per loan record, so the old loan ID
-  returns that loan record's own balance summary with its non-active status and principal balance
-  `0.00` (FR-008a; decided in O2), never the new loan's summary on the same
-  contract. It is outside the SC-001 parity scope because it is not active.
+  returns that loan record's own non-active status with principal balance `null`, not available,
+  reason `LOAN_NOT_ACTIVE` (FR-008a; decided in O2). It never returns the new loan's principal
+  on the same contract. The screen shows the old record's own balance, which only the SPI Excel
+  loan engine calculates, so the API does not return it until the engine feature covers it. It
+  is outside the SC-001 parity scope because it is not active.
+- **Active loan whose principal cannot be read** (the view returns no principal for an active
+  record): HTTP 500 `INTERNAL_ERROR`. `null` principal is never returned for an active record.
 - **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
   payments), so it is inside the SC-001 parity scope.
 - **Test loan with conflicting values on the same screen** (for example two different monthly
@@ -210,8 +232,9 @@ the documented status, code, and field.
   its loan ID, under the `/v1` version, as defined in the API contract. Balances are always stated
   as of the current date (see [Assumptions](#assumptions)); the request takes no date input, and
   the response returns the as-of date used.
-- **FR-002**: A successful response MUST contain exactly: loan ID, loan status, as-of date, and
-  principal balance.
+- **FR-002**: A successful response MUST contain exactly: loan ID, loan status, as-of date,
+  principal balance, and principal balance available. It MUST also contain principal unavailable
+  reason when, and only when, principal balance available is false (FR-008a).
 - **FR-003**: Every returned value MUST equal the value the SPI Application shows for the same
   loan, tenant, and as-of date (today) in its parity source:
   - Principal balance: Principal Remaining on the Balance Summary tab of the Transaction Activity
@@ -225,19 +248,28 @@ the documented status, code, and field.
   The API MUST NOT recompute, round differently, or reinterpret SPI values.
 - **FR-004**: *Withdrawn (scope reduction, 2026-10-23).* Others 1 to 5 are out of scope.
 - **FR-005**: *Withdrawn (scope reduction, 2026-10-23).* Other bucket names are out of scope.
-- **FR-006**: The principal balance MUST be an exact decimal value with two decimal places; a zero
-  balance MUST be returned as zero, not omitted.
+- **FR-006**: When available, the principal balance MUST be an exact decimal value with two
+  decimal places; a zero balance MUST be returned as zero, not omitted or `null`. When not
+  available (FR-008a), it MUST be `null`, never `0` or `0.00`.
 - **FR-007**: The response MUST NOT include a payoff amount or any of the fields listed in
   [Out of Scope](#out-of-scope).
 - **FR-008**: The feature is read-only. No request may change any data.
 - **FR-008a**: The API works per loan record. A request for a loan ID returns that loan record's
   own summary and status, including an old loan record left behind by a rewrite (non-active
   status). It never substitutes another loan record on the same contract. Last Payment and
-  year-to-date totals are not returned. A non-active loan record (any status other than exactly
-  "Active", including an old record left behind by a rewrite) returns principal balance `0.00`,
-  because the SPI function the API reuses returns one principal per contract, which belongs to
-  the contract's active record (see the plan's per-loan-record rule). This matches what the SPI
-  Application screen shows for a non-active loan record (decided in O2).
+  year-to-date totals are not returned. Principal availability depends only on status:
+  - **Active** (status exactly "Active"): principal balance is the record's value (FR-003),
+    principal balance available is `true`, and principal unavailable reason is absent.
+  - **Not active** (any other status, including an old record left behind by a rewrite):
+    principal balance is `null`, never `0.00`; principal balance available is `false`; and
+    principal unavailable reason is `LOAN_NOT_ACTIVE`. The SPI Application screen shows such a
+    record's own principal, which only the SPI Excel loan engine calculates, and the SPI function
+    the API reuses returns one principal per contract, which belongs to the contract's active
+    record (see the plan's per-loan-record rule). So the API cannot return the screen's value and
+    does not return any other value in its place. A later engine feature may make the principal
+    available for non-active records (decided in O2, 2026-10-26).
+
+  `null` principal occurs only in this case.
 
 **Authentication, authorization, and tenancy**
 
@@ -298,7 +330,7 @@ the documented status, code, and field.
   contract and the old record stays with a non-active status.
 - **Loan Balance Summary**: The read-only values the SPI Application shows for one loan record as
   of today, in the parity source sections of FR-003: loan ID, loan status, as-of date, and
-  principal balance.
+  principal balance, plus whether the principal is available and, if not, why (FR-008a).
 
 ## Success Criteria *(mandatory)*
 
@@ -332,7 +364,8 @@ the documented status, code, and field.
 
 Three points raised on 2026-10-23 in the plan were decided on 2026-10-23 and are closed. See
 [plan.md, Open points for Farzin](plan.md#open-points-for-farzin). A fourth point, O4, was
-raised during implementation and decided on 2026-10-26.
+raised during implementation and decided on 2026-10-26. O2 was reopened after the T038 screen
+check and decided again by Farzin on 2026-10-26.
 
 - **O1. Principal parity reference**: *Status*: Closed, option (b). The Balance Summary tab
   shows the Excel engine's Principal Remaining, while the API reads the SQL function. The Excel
@@ -347,13 +380,19 @@ raised during implementation and decided on 2026-10-26.
   and the test-only reference login is not given any access to it. `lrGetPrincipalRemaining` was
   rejected as a substitute, because the function the `rw` view uses calls it, so it is not an
   independent reference. The automated parity test therefore checks loan status and as-of date
-  only, and the non-active `0.00` rule is still tested for every non-active record. Principal
+  only, and the non-active rule (FR-008a) is still tested for every non-active record. Principal
   parity rests on the 5-loan manual screen check. This is a second documented deviation from
   Principle IV in the plan's Complexity Tracking, with Farzin's pull request approval as the
   sign-off.
-- **O2. Non-active principal**: *Status*: Closed. A non-active loan record returns principal
-  `0.00` (FR-008a), because that matches what the screen shows. The private per-status screen
-  check (tasks T038) checks the other non-active statuses before merge.
+- **O2. Non-active principal**: *Status*: Reopened, then decided by Farzin on 2026-10-26
+  (option B). The earlier decision (2026-10-23) that a non-active loan record returns principal
+  `0.00` was wrong. The manual screen check (T038) found that the Balance Summary tab shows each
+  old rewritten loan record's own principal balance, not `0.00`, and only the SPI Excel loan
+  engine calculates that value. A non-active loan record now returns its status with principal
+  `null`, `principalBalanceAvailable` `false`, and `principalUnavailableReason`
+  `LOAN_NOT_ACTIVE` (FR-008a), until the engine feature covers it. "Rewritten" is the only
+  non-active status in use; other non-active statuses get the same rule, because their screen
+  value cannot be verified without the engine. Check details are kept privately.
 - **O3. Test-only database users and grants**: *Status*: Closed, allowed. The test setup may
   create the test database users and grant the test-only reference login `EXECUTE` on the
   read-only SPI procedures in `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. They add
@@ -398,6 +437,9 @@ The questions below were answered by Farzin on 2026-10-22 and are closed. See
 - **Other balance fields**: interest, late fees, service fees, unapplied amount, Others 1 to 5 and
   their client-configured names, total balance, past-due amount, and days past due. The SPI Excel
   loan engine calculates these values; they will be a separate feature later.
+- **Principal balance of non-active loan records**: the screen value comes from the SPI Excel
+  loan engine; until the engine feature covers it, the API returns `null` with reason
+  `LOAN_NOT_ACTIVE` (FR-008a).
 - **Payoff amount**: a separate feature.
 - **Balances as of a past or future date**: the request takes no date input.
 
@@ -417,7 +459,7 @@ The questions below were answered by Farzin on 2026-10-22 and are closed. See
   stored as a status, so delinquent loans are inside the SC-001 parity scope. Loans in non-active
   statuses (for example paid off, cancelled, or old loan records left behind when a loan is
   rewritten) are outside the SC-001 parity scope, but are still returned by the API with their
-  own summary and status (FR-008a).
+  own status and with principal not available (FR-008a).
 - Loans are in a single currency per tenant; no currency conversion is needed.
 - The SPI Application is the system of record for every returned value, through the parity
   source sections in FR-003.

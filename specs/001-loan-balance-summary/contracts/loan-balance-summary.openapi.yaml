@@ -35,6 +35,21 @@ paths:
         amount and the other balance fields (interest, fees, unapplied, Others 1 to 5, total
         balance, past due) are not part of this response; they will be a separate feature.
 
+        Principal availability depends only on the loan record's status:
+
+        - Status exactly `Active`: `principalBalance` is a number (zero is `0.00`),
+          `principalBalanceAvailable` is `true`, and `principalUnavailableReason` is absent.
+        - Any other status (for example an old loan record left behind by a rewrite):
+          `principalBalance` is `null` (never `0.00`), `principalBalanceAvailable` is `false`, and
+          `principalUnavailableReason` is `LOAN_NOT_ACTIVE`. The SPI Application shows such a
+          record's own principal, which only the SPI loan engine calculates; this API does not
+          return it yet.
+
+        `principalBalance` is `null` in no other case. If an active record's principal cannot
+        be read, the response is `500 INTERNAL_ERROR`. Clients must decide by
+        `principalBalanceAvailable`, not by `loanStatus`: a later release may make the principal
+        available for non-active records.
+
         Check order: credential (401), tenant header (400), tenant authorization (403), loan ID
         validation (400), loan lookup (404).
       tags: [Loans]
@@ -60,6 +75,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoanBalanceSummary'
+              examples:
+                active:
+                  summary: Active loan record
+                  value:
+                    loanId: 100245
+                    loanStatus: Active
+                    asOfDate: '2026-10-22'
+                    principalBalance: 12500.00
+                    principalBalanceAvailable: true
+                notActive:
+                  summary: Non-active loan record (principal not available)
+                  value:
+                    loanId: 100244
+                    loanStatus: Rewritten
+                    asOfDate: '2026-10-22'
+                    principalBalance: null
+                    principalBalanceAvailable: false
+                    principalUnavailableReason: LOAN_NOT_ACTIVE
         '400':
           description: |
             `TENANT_REQUIRED` when `X-Tenant-Id` is missing, empty, or whitespace only
@@ -168,13 +201,16 @@ components:
       description: |
         One loan record's balance summary as of today, matching the SPI Application screen
         sections described on the operation.
-        The principal balance is an exact decimal value in the loan's currency with two decimal
-        places, as the SPI Application shows it. It is not recomputed by the API.
+        When available, the principal balance is an exact decimal value in the loan's currency
+        with two decimal places, as the SPI Application shows it. It is not recomputed by the
+        API. When it is not available, it is `null`, never `0.00`; see the operation for exactly
+        when.
       required:
         - loanId
         - loanStatus
         - asOfDate
         - principalBalance
+        - principalBalanceAvailable
       properties:
         loanId:
           type: integer
@@ -196,12 +232,32 @@ components:
             this can differ from the resort's local date. Callers cannot request another date.
           example: '2026-10-22'
         principalBalance:
-          $ref: '#/components/schemas/Amount'
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+          nullable: true
+          description: |
+            Principal Remaining for this loan record. Always present. A number when
+            `principalBalanceAvailable` is `true`; `null` when it is `false`. Never `0.00` in
+            place of an unavailable value.
+        principalBalanceAvailable:
+          type: boolean
+          description: |
+            `true` when `principalBalance` holds the loan record's principal (status exactly
+            `Active`); `false` when it is `null` (any other status).
+        principalUnavailableReason:
+          type: string
+          description: |
+            Why the principal is not available. Present only when `principalBalanceAvailable` is
+            `false`; absent otherwise. A stable code: clients map it by value, and it is never
+            renamed within `/v1`. `LOAN_NOT_ACTIVE`: the loan record's status is not `Active`.
+          enum:
+            - LOAN_NOT_ACTIVE
       example:
         loanId: 100245
         loanStatus: Active
         asOfDate: '2026-10-22'
         principalBalance: 12500.00
+        principalBalanceAvailable: true
     Amount:
       type: number
       format: decimal

@@ -43,11 +43,22 @@ See [contracts/loan-balance-summary.openapi.yaml](contracts/loan-balance-summary
 | `loanId` | int64 | Request, confirmed by `rw.Loan` |
 | `loanStatus` | string | `rw.Loan.LoanStatusName` |
 | `asOfDate` | date | `rw.LoanPrincipalBalance.AsOfDate` (SQL Server's current date) |
-| `principalBalance` | decimal(2) | `rw.LoanPrincipalBalance.PrincipalBalance` |
+| `principalBalance` | decimal(2), nullable | `rw.LoanPrincipalBalance.PrincipalBalance` |
+| `principalBalanceAvailable` | boolean | `rw.Loan.LoanStatusId = 1` |
+| `principalUnavailableReason` | string (`LOAN_NOT_ACTIVE`), optional | Set by the API when `principalBalanceAvailable` is `false` |
 
-Rules: all four fields are always present; a zero principal is returned as `0.00` (FR-006). A
-non-active loan record, including an old record left behind by a rewrite, returns its own status
-and principal `0.00` (FR-008a; plan, per-loan-record rule).
+Rules (FR-006, FR-008a; plan, per-loan-record rule):
+
+- `loanId`, `loanStatus`, `asOfDate`, `principalBalance`, and `principalBalanceAvailable` are
+  always present. `principalUnavailableReason` is present only when `principalBalanceAvailable`
+  is `false`.
+- **Active** (`LoanStatusId = 1`): `principalBalance` is the view's value (a zero principal is
+  `0.00`), `principalBalanceAvailable` is `true`, and there is no reason. A `NULL` principal for
+  an active record is an internal error (500 `INTERNAL_ERROR`), never returned as `null`.
+- **Not active** (any other status, including an old record left behind by a rewrite):
+  `principalBalance` is `null` (never `0.00`), `principalBalanceAvailable` is `false`, and
+  `principalUnavailableReason` is `LOAN_NOT_ACTIVE`. A non-`NULL` principal for a non-active
+  record is an internal error (500), so the view and the API cannot disagree silently.
 
 ### Error
 
@@ -72,13 +83,15 @@ One row per loan record. Read from SPI tables only.
 
 ### `rw.LoanPrincipalBalance`
 
-One row per loan record.
+One row per loan record. Created by `V002`; redefined by `V003` (O2, decided 2026-10-26), because
+`V002` is already applied and a versioned script is never edited after it is applied. The table
+shows the `V003` definition.
 
 | Column | Value |
 | --- | --- |
 | `LoanId` | `lrLoanReceivable.ID` |
 | `AsOfDate` | `CAST(GETDATE() AS date)`, the same clock the function call uses |
-| `PrincipalBalance` | `LoanStatusId = 1`: `principalRemaining` (`money`, scale 4) from the table-valued function `dbo.lrFnGetBalanceSummary(ID, GETDATE())` through `OUTER APPLY` (so a record never drops out of the view; approved 2026-10-26), rounded to 2 places by `CAST(... AS decimal(19,2))` (half away from zero, as the screen does; research R2), confirmed by the parity test. Any other status: `0.00` (spec FR-008a; decided in O2), and the function is not called |
+| `PrincipalBalance` | `LoanStatusId = 1`: `principalRemaining` (`money`, scale 4) from the table-valued function `dbo.lrFnGetBalanceSummary(ID, GETDATE())` through `OUTER APPLY` (so a record never drops out of the view; approved 2026-10-26), rounded to 2 places by `CAST(... AS decimal(19,2))` (half away from zero, as the screen does; research R2), confirmed by the parity test. Any other status: `NULL` (spec FR-008a; decided in O2, 2026-10-26; `V002` returned `0.00`), and the function is not called |
 
 The function returns a per-contract value; the status rule is what keeps the result per loan
 record (plan, per-loan-record rule).

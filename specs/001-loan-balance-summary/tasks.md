@@ -36,9 +36,12 @@ its own.
 
 **Decisions O1–O3, closed 2026-10-23** (plan, Open points for Farzin): **O1**, option (b): the
 principal parity reference is the SPI SQL function path, with a documented Principle IV deviation;
-the Excel engine is not used in any way. **O2**: non-active loan records return principal `0.00`.
-**O3**: the test-only users and `EXECUTE` grants on read-only SPI procedures are allowed. No task
-waits on an open decision.
+the Excel engine is not used in any way. **O3**: the test-only users and `EXECUTE` grants on
+read-only SPI procedures are allowed. **O2, reopened and decided by Farzin 2026-10-26 (option
+B)**: non-active loan records return their status with principal `null` (never `0.00`),
+`principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE`; the
+earlier `0.00` rule was wrong (T038). The view change is `V003` (T063), because `V002` is already
+applied. No task waits on an open decision.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -114,7 +117,8 @@ one loan record, matching the SPI parity sources (FR-001–FR-003, FR-006–FR-0
 
 **Independent Test**: With a caller allowed the tenant mapped to `AlphaPMS_ResortWise`, request
 each active loan and compare every field with the parity references read automatically from SPI
-(FR-021); every non-active record returns its own status and principal `0.00`.
+(FR-021); every non-active record returns its own status, principal `null`,
+`principalBalanceAvailable` `false`, and reason `LOAN_NOT_ACTIVE` (O2).
 
 ### Tests for User Story 1 ⚠️
 
@@ -123,16 +127,22 @@ each active loan and compare every field with the parity references read automat
 - [X] T029 [P] [US1] Write `UnitTests/Contract/ContractConsistencyTests.cs`: load `specs/001-loan-balance-summary/contracts/loan-balance-summary.openapi.yaml` (linked into the UnitTests project as a `None` item with `CopyToOutputDirectory`) with Microsoft.OpenApi.Readers; the app's routes equal the contract's paths; the `Error.code` enum equals the `ErrorCodes` constants; `LoanBalanceSummary` required fields are exactly `loanId`, `loanStatus`, `asOfDate`, `principalBalance` and match the response model
 - [X] T030 [P] [US1] Write `UnitTests/Loans/BalanceSummaryEndpointTests.cs` with `WebApplicationFactory` and an in-memory fake `ILoanBalanceRepository`: 200 body has exactly the four fields; `principalBalance` is serialized with two decimal places, including `0.00` (FR-006); a negative principal is returned unchanged; the body contains no payoff field and none of the out-of-scope fields (FR-007)
 - [X] T031 [P] [US1] Write `DbTests/Parity/ActiveLoanParityTests.cs`: for every loan record with `LoanStatusId = 1` in `AlphaPMS_ResortWise` (read-only `SELECT` on `RW_REF_A`), call the API through tenant A and compare: `loanStatus` with `lrGetLoanDetails` (`@Loanid`, `@SalesContractId`; status ID) and `lrGetLoanStatusTypes` (no parameters; name) on `RW_REF_A`, exact ordinal string; `asOfDate` equals `CAST(GETDATE() AS date)` read on `RW_REF_A` just before or just after the request. Each loan's contract ID is read at run time on `RW_REF_A` and never logged or saved. All SPI calls are read-only. Failures name the loan ID and field only in `TestResults/`. Report the count to `RunSummary` (SC-001, FR-021, research R4). **Principal is not compared (deviation, decided 2026-10-26)**: `lrGetTransactionActivity` reaches the database `AlphaSales`, which the reference login is not given access to, and `lrGetPrincipalRemaining` is not independent of the view. Principal parity rests on the 5-loan manual screen check, recorded in the plan's Complexity Tracking, with Farzin's PR approval as the sign-off
-- [X] T032 [P] [US1] Write `DbTests/Parity/NonActiveLoanTests.cs`: for every loan record with `LoanStatusId <> 1` in `AlphaPMS_ResortWise` (selected on `RW_REF_A`), the API returns 200, the record's own status name, and `principalBalance` `0.00` (FR-008a; plan, per-loan-record rule; O2)
+- [ ] T032 [P] [US1] Write `DbTests/Parity/NonActiveLoanTests.cs`: for every loan record with `LoanStatusId <> 1` in `AlphaPMS_ResortWise` (selected on `RW_REF_A`), the API returns 200, the record's own status name, `principalBalance` as the JSON `null` token (never `0` or `0.00`), `principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE` (FR-006, FR-008a; plan, per-loan-record rule; O2). **Updated 2026-10-26 (O2 option B)**: the test written earlier expects `0.00` and must be changed; it fails until T063–T065 are done
 
 ### Implementation for User Story 1
 
-- [X] T033 [US1] Create `db/rw/V002__view_loan_principal_balance.sql`: `CREATE OR ALTER VIEW rw.LoanPrincipalBalance` with one row per loan record and columns `LoanId`, `AsOfDate` = `CAST(GETDATE() AS date)`, and `PrincipalBalance`: for `LoanStatusId = 1`, the principal from `dbo.lrFnGetBalanceSummary(LoanId, GETDATE())` (with `CROSS APPLY` or in the select list, per the type confirmed in T007); for any other status, `CAST(0 AS decimal(19,2))` without calling the function. T007 found `principalRemaining` is `money` (scale 4): use `CAST(principalRemaining AS decimal(19,2))`, which rounds half away from zero as the screen does (research R2), and the parity test T031 confirms it. No other SPI function and no procedure (data-model.md, `rw.LoanPrincipalBalance`)
+- [X] T033 [US1] Create `db/rw/V002__view_loan_principal_balance.sql`: `CREATE OR ALTER VIEW rw.LoanPrincipalBalance` with one row per loan record and columns `LoanId`, `AsOfDate` = `CAST(GETDATE() AS date)`, and `PrincipalBalance`: for `LoanStatusId = 1`, the principal from `dbo.lrFnGetBalanceSummary(LoanId, GETDATE())` (with `CROSS APPLY` or in the select list, per the type confirmed in T007); for any other status, `CAST(0 AS decimal(19,2))` without calling the function. T007 found `principalRemaining` is `money` (scale 4): use `CAST(principalRemaining AS decimal(19,2))`, which rounds half away from zero as the screen does (research R2), and the parity test T031 confirms it. No other SPI function and no procedure (data-model.md, `rw.LoanPrincipalBalance`). **Note (2026-10-26)**: `V002` is applied and is not edited; its non-active `0.00` branch is replaced by `V003` (T063, O2)
 - [X] T034 [US1] Apply `V002` to both local test databases with `tools/ResortWise.RwMigrator` (quickstart step 1) and confirm locally that a query filtered on one `LoanId` evaluates the function for that loan only (actual execution plan; research R14). Record nothing from the plan beyond "filter pushed down: yes/no" in the task notes. **Note (2026-10-26)**: filter pushed down: yes
 - [X] T035 [P] [US1] Create `Api/Loans/Models/LoanBalanceSummaryResponse.cs` with exactly `loanId` (int64), `loanStatus` (string), `asOfDate` (date, `yyyy-MM-dd`), `principalBalance` (decimal, two places), and `Api/Loans/Models/LoanBalanceRow.cs` for the repository result
 - [X] T036 [US1] Implement `Api/Loans/ILoanBalanceRepository.cs` and `Api/Loans/LoanBalanceRepository.cs`: one parameterized Dapper query joining `rw.Loan` and `rw.LoanPrincipalBalance` on `LoanId` with `WHERE LoanId = @LoanId`, through `TenantConnectionFactory`; it references `rw.` objects only and returns null when no row exists
 - [X] T037 [US1] Implement `Api/Loans/BalanceSummaryEndpoint.cs` and map `GET /v1/loans/{loanId}/balance-summary` in `Api/Program.cs`: read through the repository and return the four fields; set `loanId` on the audit context; no recomputation or rounding beyond the view's (FR-003)
-- [ ] T038 [US1] Manual check, not committed: in the SPI Application, open the Balance Summary tab for one loan record of **each** non-active status found in T007 (e) (one non-active status is in use in `AlphaPMS_ResortWise`: the status of old records left behind by a rewrite), in `AlphaPMS_ResortWise`, and note whether Principal Remaining shows 0. Keep the results private and send them to Farzin. O2 (`0.00`) is decided; any status that does not show 0 goes to Farzin before merge (plan). Record only "done, results sent privately" in the PR, with no loan IDs, statuses per loan, or values
+- [X] T038 [US1] Manual check, not committed: in the SPI Application, open the Balance Summary tab for one loan record of **each** non-active status found in T007 (e) (one non-active status is in use in `AlphaPMS_ResortWise`: the status of old records left behind by a rewrite), in `AlphaPMS_ResortWise`, and note whether Principal Remaining shows 0. Keep the results private and send them to Farzin. Any status that does not show 0 goes to Farzin before merge (plan). Record only "done, results sent privately" in the PR, with no loan IDs, statuses per loan, or values. **Done (2026-10-26)**: two rewritten loan records checked; the screen value is not `0.00` on either. Details are kept privately. This reopened O2, which Farzin decided as option B (T032, T043, T060–T065)
+- [ ] T060 [P] [US1] Update `UnitTests/Contract/ContractConsistencyTests.cs` (T029): `LoanBalanceSummary` required fields are exactly `loanId`, `loanStatus`, `asOfDate`, `principalBalance`, `principalBalanceAvailable`; `principalBalance` is nullable; `principalUnavailableReason` is optional and its enum equals the API's reason constants (only `LOAN_NOT_ACTIVE`); all of them match the response model (O2)
+- [ ] T061 [P] [US1] Write `UnitTests/Loans/NullPrincipalSerializationTests.cs` with `WebApplicationFactory` and the fake repository: **a null principal is never serialized as 0**. A non-active record gives `principalBalance` as the JSON `null` token, never `0`, `0.0`, or `0.00`, plus `principalBalanceAvailable` `false` and `principalUnavailableReason` `LOAN_NOT_ACTIVE`. Serializing the response model directly with a null principal also writes `null`. An active record with principal zero gives `0.00`, `principalBalanceAvailable` `true`, and no `principalUnavailableReason` property. An active record with a null principal and a non-active record with a non-null principal each give 500 `INTERNAL_ERROR` (FR-006, FR-008a; data-model.md)
+- [ ] T062 [P] [US1] Update `UnitTests/Loans/BalanceSummaryEndpointTests.cs` (T030): an active 200 body has exactly `loanId`, `loanStatus`, `asOfDate`, `principalBalance`, `principalBalanceAvailable`; a non-active 200 body has those plus `principalUnavailableReason`; the other T030 checks are unchanged
+- [ ] T063 [US1] Create `db/rw/V003__view_loan_principal_balance_null_non_active.sql`: `CREATE OR ALTER VIEW rw.LoanPrincipalBalance`, the same as `V002` except that a record with any status other than `LoanStatusId = 1` returns `PrincipalBalance` `CAST(NULL AS decimal(19,2))`, still without applying the function. `V002` is already applied and is not edited (O2). Still only `dbo.lrFnGetBalanceSummary`, read-only; the T012 scanner must pass. No loan IDs or values in the script
+- [ ] T064 [US1] Apply `V003` to both local test databases with `tools/ResortWise.RwMigrator` (quickstart step 1) and re-check that a query filtered on one `LoanId` evaluates the function for that loan only (as in T034). Record only "filter pushed down: yes/no" in the task notes
+- [ ] T065 [US1] Update `Api/Loans/Models/LoanBalanceRow.cs` (add `LoanStatusId`), `Api/Loans/LoanBalanceRepository.cs` (select `rw.Loan.LoanStatusId`), `Api/Loans/Models/LoanBalanceSummaryResponse.cs`, and `Api/Loans/BalanceSummaryEndpoint.cs`. `principalBalance` becomes nullable and is always written: as the JSON `null` token when null, never `0`, and with two places otherwise. Add `principalBalanceAvailable` (`LoanStatusId = 1`) and `principalUnavailableReason`, which is `LOAN_NOT_ACTIVE` when not available and omitted when available. Add a reason constant next to `Api/Errors/ErrorCodes.cs`. Keep the guard that an active record with a null principal is an internal error, and add one for a non-active record with a non-null principal (data-model.md). Make T032, T043, and T060–T062 pass
 
 **Checkpoint**: User Story 1 is fully functional; parity and non-active tests pass locally
 
@@ -172,7 +182,7 @@ return `LOAN_NOT_FOUND` through B only.
 
 ### Tests for User Story 3 ⚠️
 
-- [X] T043 [P] [US3] Write `DbTests/Isolation/TenantIsolationTests.cs`. Loans are selected by the T045 rules on `RW_REF_A` (read-only), never listed. For every loan record that is active with `ID % 10 = 3` in `AlphaPMS_ResortWise`: tenant A returns its own status and principal, and tenant B returns the non-active status set by T045 (its name read on `RW_REF_B` from `lrLoanReceivable` and `lrLoanStatus`) and principal `0.00`, so the responses differ (SC-002). For the removed loan (lowest ID with `ID % 10 = 7` in `AlphaPMS_ResortWise`): tenant B returns 404 `LOAN_NOT_FOUND`, byte-identical to a loan ID that exists in no tenant, while tenant A returns 200 (SC-005). A caller allowed only tenant A gets 403 `TENANT_FORBIDDEN` for `X-Tenant-Id: tenant-b` (SC-003). Tenant B is checked by these expected results only; `lrGetTransactionActivity` is not called for tenant B (decided 2026-10-26)
+- [ ] T043 [P] [US3] Write `DbTests/Isolation/TenantIsolationTests.cs`. Loans are selected by the T045 rules on `RW_REF_A` (read-only), never listed. For every loan record that is active with `ID % 10 = 3` in `AlphaPMS_ResortWise`: tenant A returns its own status, a non-null principal, and `principalBalanceAvailable` `true`; tenant B returns the non-active status set by T045 (its name read on `RW_REF_B` from `lrLoanReceivable` and `lrLoanStatus`), `principalBalance` as the JSON `null` token (never `0` or `0.00`), `principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE`, so the responses differ (SC-002; O2). **Updated 2026-10-26 (O2 option B)**: the test written earlier expects `0.00` for tenant B and must be changed; it fails until T063–T065 are done. For the removed loan (lowest ID with `ID % 10 = 7` in `AlphaPMS_ResortWise`): tenant B returns 404 `LOAN_NOT_FOUND`, byte-identical to a loan ID that exists in no tenant, while tenant A returns 200 (SC-005). A caller allowed only tenant A gets 403 `TENANT_FORBIDDEN` for `X-Tenant-Id: tenant-b` (SC-003). Tenant B is checked by these expected results only; `lrGetTransactionActivity` is not called for tenant B (decided 2026-10-26)
 
 ### Implementation for User Story 3
 
@@ -216,7 +226,7 @@ documented status, code, and field.
 - [X] T054 [P] Update `specs/001-loan-balance-summary/checklists/requirements.md` for the reduced scope: remove items about the out-of-scope fields and Other bucket names
 - [ ] T055 Walk through `specs/001-loan-balance-summary/quickstart.md` end to end on the local databases (apply scripts and create logins, prepare tenant B, create keys, configure, run, smoke checks, tests) and fix any step that is wrong in `specs/001-loan-balance-summary/quickstart.md`
 - [ ] T056 Run the full local test suite with `RW_DB_TESTS=1` and the quickstart step 7 variables (unit and database) and `tools/load-check.ps1`; all tests pass with 0 parity mismatches and p95 under 1 s. Keep `TestResults/run-summary.txt` for the PR (date, database name, loans checked, passed and failed counts only)
-- [X] T057 Before the PR, record the decisions in `specs/001-loan-balance-summary/plan.md` and `specs/001-loan-balance-summary/spec.md`: O1 option (b) with the Principle IV deviation in Complexity Tracking, O2 confirmed, O3 allowed, and O1–O3 closed in the spec's Open Questions (done 2026-10-23). If T038 finds a status that does not show 0, update O2 here after Farzin's answer. Run `git diff --cached` for secrets and real data before every commit
+- [X] T057 Before the PR, record the decisions in `specs/001-loan-balance-summary/plan.md` and `specs/001-loan-balance-summary/spec.md`: O1 option (b) with the Principle IV deviation in Complexity Tracking, O2 confirmed, O3 allowed, and O1–O3 closed in the spec's Open Questions (done 2026-10-23). If T038 finds a status that does not show 0, update O2 here after Farzin's answer. **Note (2026-10-26)**: T038 found that; O2 was reopened and Farzin's option B is recorded in the spec, contract, plan, research, data-model, and these tasks. Run `git diff --cached` for secrets and real data before every commit
 - [ ] T058 Open the pull request to `main` with the run summary from T056 and the T038 note ("manual per-status check done, results sent privately"), with no loan values or client data. The PR description names both Principle IV deviations in Complexity Tracking (O1 option (b), and the T031 principal reference); the PR review approval is Farzin's sign-off on both. After merge, set **Status** to `Done` in `specs/001-loan-balance-summary/spec.md`
 
 ---
@@ -247,8 +257,9 @@ documented status, code, and field.
 - Tests are written first and fail before implementation
 - `rw` scripts before the repository, the repository before the endpoint
 - T038 (manual per-status check) and T057 (decisions recorded) must be done before the PR (T058)
-- T032 and T033 follow O2 (non-active principal `0.00`, decided). If T038 finds a status that
-  does not show 0 and Farzin changes O2, update T032 and T033
+- T032, T043, and T060–T065 follow O2 (option B, decided 2026-10-26: non-active principal
+  `null`, reason `LOAN_NOT_ACTIVE`). Tests T032, T043, and T060–T062 first; then T063 → T064
+  (apply `V003`) and T065. T043 also needs T063–T065 before it passes
 - T011 and T028 follow O3 (test-only users and grants, allowed)
 
 ### Parallel Opportunities
@@ -256,7 +267,7 @@ documented status, code, and field.
 - Setup: T003–T006 in parallel after T001–T002
 - Foundational: T012–T017, T019, and T021–T023 in parallel after T007–T011; T018 after T014;
   T020 after T014 and T016; T024 after T021; T025 after T018–T024; T026–T028 after T011 and T025; T059 any time after T026
-- US1: T029–T032 in parallel; T035 in parallel with T033
+- US1: T029–T032 in parallel; T035 in parallel with T033; T060–T062 in parallel with T032
 - US2: T039–T041 in parallel
 - US4: T047–T050 in parallel
 - US2 and US4 can run in parallel with US1 once Foundational is done
