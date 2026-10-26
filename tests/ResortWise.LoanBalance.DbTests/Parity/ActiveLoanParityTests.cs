@@ -9,7 +9,8 @@ namespace ResortWise.LoanBalance.DbTests.Parity;
 /// <summary>
 /// Every active loan record in <c>AlphaPMS_ResortWise</c> matches the SPI parity references
 /// (SC-001, FR-021, research R4): status from <c>lrGetLoanDetails</c> and
-/// <c>lrGetLoanStatusTypes</c>, as-of date from the server clock. All reference calls are
+/// <c>lrGetLoanStatusTypes</c>, as-of date from the server clock; and the principal is available
+/// (a number, <c>principalBalanceAvailable</c> true, no <c>principalUnavailableReason</c>; O2). All reference calls are
 /// read-only and use the reference login. Contract IDs are read at run time and never logged or
 /// saved; failures name the loan ID and field only, in git-ignored <c>TestResults/</c>.
 /// Principal is not compared automatically: its reference procedure needs another database the
@@ -59,6 +60,24 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
             if (asOf != before && asOf != after)
             {
                 failures.Add($"{loan.LoanId}: asOfDate");
+            }
+
+            // Active, so the principal is available: a number, never null, and no reason (FR-008a, O2).
+            if (!body.TryGetProperty("principalBalanceAvailable", out var available)
+                || available.ValueKind != JsonValueKind.True)
+            {
+                failures.Add($"{loan.LoanId}: principalBalanceAvailable");
+            }
+
+            if (body.TryGetProperty("principalUnavailableReason", out _))
+            {
+                failures.Add($"{loan.LoanId}: principalUnavailableReason");
+            }
+
+            if (!body.TryGetProperty("principalBalance", out var principal)
+                || principal.ValueKind != JsonValueKind.Number)
+            {
+                failures.Add($"{loan.LoanId}: principalBalance");
             }
         }
 
