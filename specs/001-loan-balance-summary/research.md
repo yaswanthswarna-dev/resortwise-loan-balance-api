@@ -205,12 +205,22 @@ document replaces it.
 - **Test-setup script** `tests/db/setup/B001__diverge_tenant_b.sql`:
   - First statement: `IF DB_NAME() <> N'AlphaPMS_ResortWise_B' THROW 50001, 'Wrong database', 1;`
     before any change. `SET XACT_ABORT ON`, one transaction.
-  - Selects rows **by rule** on loan IDs (for example, `LoanId % 10 = 3` changed and
-    `LoanId % 10 = 7` removed). Changed loans get data the principal function reads (for example
-    principal paid) or their status changed, so the principal or status differs from tenant A. It contains no loan IDs or values. Changes are idempotent: they
-    set values derived from the rule, never increments, so a rerun gives the same state.
+  - Selects rows **by rule** on loan IDs (decided 2026-10-26): every active record with
+    `ID % 10 = 3` gets the lowest non-active status in use (one `UPDATE`; no amounts change), so
+    tenant B returns that status and `0.00`; exactly one record, the lowest ID with `ID % 10 = 7`,
+    is removed to prove the 404. It contains no loan IDs or values. A rerun finds no active
+    `ID % 10 = 3` record left and changes nothing. Tenant B is checked by these expected results,
+    not by `lrGetTransactionActivity`.
   - Changes only SPI **data** (no DDL on SPI objects). Removal deletes dependent rows in
     foreign-key order. The child tables are confirmed from the local schema.
+  - **Confirmed locally (T044, 2026-10-26)**: for principal, `dbo.lrFnGetBalanceSummary` reads
+    `lrLoanReceivable` (including `LoanAmount`), `lrTransaction`, and `lrFrequency`, and calls
+    `dbo.lrGetPrincipalRemaining` (which reads `lrLoanReceivable` and `lrTransaction`) and
+    `dbo.GetFinanceCharge`. The only foreign key to `lrLoanReceivable` is `lrTransaction.LoanId`
+    (no action on delete), and nothing references `lrTransaction`, so removal deletes
+    `lrTransaction` rows first, then `lrLoanReceivable`. Other tables with a loan ID column but
+    no foreign key (backup, report, and conversion tables) are not read by the `rw` views and are
+    left unchanged. The audit triggers on both tables are disabled in the restored database.
   - Run by hand with an explicit `-d AlphaPMS_ResortWise_B` and an owner-level local connection
     (quickstart step 2). The test run does not execute it, so the database tests need no login
     that can write. Before the isolation tests, the fixture checks through the reference login on
