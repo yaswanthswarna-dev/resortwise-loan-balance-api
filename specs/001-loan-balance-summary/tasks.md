@@ -194,14 +194,14 @@ documented status, code, and field.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T047 [P] [US4] Write `UnitTests/Loans/LoanIdParserTests.cs`: `abc`, `-5`, `0`, `007`, ` 12`, `12 `, `1.0`, `+1`, and a value one above the maximum confirmed in T007 → invalid; `1` and the maximum → valid
-- [ ] T048 [P] [US4] Write `UnitTests/Loans/LoanErrorTests.cs`: an invalid loan ID → 400 `LOAN_ID_INVALID` with field `loanId`, and the repository is not called; an unknown loan ID → 404 `LOAN_NOT_FOUND` with no `field`; no error message contains SQL, a stack trace, or exception text, including when the fake repository throws (FR-017)
-- [ ] T049 [P] [US4] Write `UnitTests/Loans/LoanCheckOrderTests.cs` (moved from the US2 check-order test): a forbidden tenant with an invalid loan ID → 403 `TENANT_FORBIDDEN` (tenant authorization before loan ID format); an allowed tenant with an invalid loan ID → 400 `LOAN_ID_INVALID` and the repository is called 0 times (format before existence); an allowed tenant with a valid unknown loan ID → 404 `LOAN_NOT_FOUND` (spec Edge Cases)
-- [ ] T050 [P] [US4] Write `DbTests/EndToEnd/LoanErrorEndToEndTests.cs`: `LOAN_ID_INVALID` and `LOAN_NOT_FOUND` through the real pipeline against tenant A
+- [X] T047 [P] [US4] Write `UnitTests/Loans/LoanIdParserTests.cs`: `abc`, `-5`, `0`, `007`, ` 12`, `12 `, `1.0`, `+1`, and a value one above the maximum confirmed in T007 → invalid; `1` and the maximum → valid
+- [X] T048 [P] [US4] Write `UnitTests/Loans/LoanErrorTests.cs`: an invalid loan ID → 400 `LOAN_ID_INVALID` with field `loanId`, and the repository is not called; an unknown loan ID → 404 `LOAN_NOT_FOUND` with no `field`; no error message contains SQL, a stack trace, or exception text, including when the fake repository throws (FR-017)
+- [X] T049 [P] [US4] Write `UnitTests/Loans/LoanCheckOrderTests.cs` (moved from the US2 check-order test): a forbidden tenant with an invalid loan ID → 403 `TENANT_FORBIDDEN` (tenant authorization before loan ID format); an allowed tenant with an invalid loan ID → 400 `LOAN_ID_INVALID` and the repository is called 0 times (format before existence); an allowed tenant with a valid unknown loan ID → 404 `LOAN_NOT_FOUND` (spec Edge Cases)
+- [X] T050 [P] [US4] Write `DbTests/EndToEnd/LoanErrorEndToEndTests.cs`: `LOAN_ID_INVALID` and `LOAN_NOT_FOUND` through the real pipeline against tenant A
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] Implement `Api/Loans/LoanIdParser.cs`: match the raw route string against `^[1-9][0-9]*$`, then range-check against the SPI loan ID type confirmed in T007; no normalization (FR-016, research R8). Call it from `Api/Loans/BalanceSummaryEndpoint.cs` before the repository, returning 400 `LOAN_ID_INVALID` with field `loanId`, and return 404 `LOAN_NOT_FOUND` when the repository returns null
+- [X] T051 [US4] Implement `Api/Loans/LoanIdParser.cs`: match the raw route string against `^[1-9][0-9]*$`, then range-check against the SPI loan ID type confirmed in T007; no normalization (FR-016, research R8). Call it from `Api/Loans/BalanceSummaryEndpoint.cs` before the repository, returning 400 `LOAN_ID_INVALID` with field `loanId`, and return 404 `LOAN_NOT_FOUND` when the repository returns null
 - [X] T052 [US4] T007 found the loan ID type is `int`: add `maximum: 2147483647` to the `loanId` path parameter and the `loanId` response property in `specs/001-loan-balance-summary/contracts/loan-balance-summary.openapi.yaml` (allowed before first release; research R8)
 
 **Checkpoint**: All user stories work independently

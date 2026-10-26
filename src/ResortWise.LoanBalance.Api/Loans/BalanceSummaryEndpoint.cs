@@ -1,4 +1,3 @@
-using System.Globalization;
 using ResortWise.LoanBalance.Api.Audit;
 using ResortWise.LoanBalance.Api.Errors;
 using ResortWise.LoanBalance.Api.Loans.Models;
@@ -27,7 +26,8 @@ public static class BalanceSummaryEndpoint
     {
         requestContext.LoanId = loanId;
 
-        if (!int.TryParse(loanId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id < 1)
+        // Check order: loan ID format (400) before existence (404); the repository is not called for a bad ID.
+        if (!LoanIdParser.TryParse(loanId, out var id))
         {
             await ErrorWriter.WriteAsync(context, ErrorCodes.LoanIdInvalid);
             return;
