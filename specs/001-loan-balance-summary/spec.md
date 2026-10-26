@@ -307,9 +307,11 @@ the documented status, code, and field.
 - **SC-001**: For 100% of active loans (SPI status exactly "Active", including delinquent loans)
   in the `AlphaPMS_ResortWise` test database, including loans with conflicting values on the same
   screen, every returned field matches its FR-003 parity source for that loan, as read
-  automatically by the parity test (FR-021). Zero mismatches are allowed. For principal balance,
-  the reference is the SPI SQL function path, not the Excel engine value the screen shows (O1,
-  a documented deviation from Principle IV in the plan's Complexity Tracking).
+  automatically by the parity test (FR-021). Zero mismatches are allowed. The automated test
+  checks loan status and as-of date. Principal balance is not compared automatically: its SQL
+  reference reaches another database that the test's reference login is not given access to, so
+  principal parity rests on the 5-loan manual screen check (O1 and O4, documented deviations from
+  Principle IV in the plan's Complexity Tracking).
 - **SC-002**: For every loan the test-setup script changes or removes in `AlphaPMS_ResortWise_B`,
   the tenant mapped to `AlphaPMS_ResortWise_B` returns a different result (different values, or
   `LOAN_NOT_FOUND`) than the tenant mapped to `AlphaPMS_ResortWise`.
@@ -329,7 +331,8 @@ the documented status, code, and field.
 ## Open Questions for Clarify
 
 Three points raised on 2026-10-23 in the plan were decided on 2026-10-23 and are closed. See
-[plan.md, Open points for Farzin](plan.md#open-points-for-farzin).
+[plan.md, Open points for Farzin](plan.md#open-points-for-farzin). A fourth point, O4, was
+raised during implementation and decided on 2026-10-26.
 
 - **O1. Principal parity reference**: *Status*: Closed, option (b). The Balance Summary tab
   shows the Excel engine's Principal Remaining, while the API reads the SQL function. The Excel
@@ -337,7 +340,17 @@ Three points raised on 2026-10-23 in the plan were decided on 2026-10-23 and are
   the constitution allows tests to call only SPI procedures and functions. The parity test uses
   the SPI SQL function path as the principal reference (FR-021 unchanged). This is a documented
   deviation from Principle IV in the plan's Complexity Tracking, backed by the 5-loan manual
-  screen check on 2026-10-22, with Farzin's pull request approval as the sign-off.
+  screen check on 2026-10-22, with Farzin's pull request approval as the sign-off. O4 later
+  removed the automated principal comparison.
+- **O4. Automated principal comparison**: *Status*: Closed, decided 2026-10-26. The SQL path
+  reference from O1 (`lrGetTransactionActivity`) reaches the database `AlphaSales` at run time,
+  and the test-only reference login is not given any access to it. `lrGetPrincipalRemaining` was
+  rejected as a substitute, because the function the `rw` view uses calls it, so it is not an
+  independent reference. The automated parity test therefore checks loan status and as-of date
+  only, and the non-active `0.00` rule is still tested for every non-active record. Principal
+  parity rests on the 5-loan manual screen check. This is a second documented deviation from
+  Principle IV in the plan's Complexity Tracking, with Farzin's pull request approval as the
+  sign-off.
 - **O2. Non-active principal**: *Status*: Closed. A non-active loan record returns principal
   `0.00` (FR-008a), because that matches what the screen shows. The private per-status screen
   check (tasks T038) checks the other non-active statuses before merge.

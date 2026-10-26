@@ -167,14 +167,14 @@ Checked against constitution v1.4.0.
 | I. API first | One public endpoint under `/v1`, documented in the committed OpenAPI contract. The contract is published with the repository, not served by the API, and a unit test checks that it matches the app. No internal endpoints. | PASS |
 | II. Tenant isolation and authorization | API key → caller → allowed tenants; tenant → one connection string name. Checks in fixed order before any data read. Unknown tenant answers like a forbidden one. Isolation tests use both local databases. The API's database login has SELECT on schema `rw` only. The API has no anonymous endpoint (the contract is not served). | PASS |
 | III. SPI schema read-only | New objects only in `rw`, by versioned scripts. Here "versioned" means committed to git and reviewed, so the bootstrap script counts even though it has no `V###` number. That includes the journal table `rw.SchemaVersions`, which the bootstrap script creates (not DbUp). The API login can read only `rw`, and a database test proves it cannot read SPI objects. `rw.LoanPrincipalBalance` selects from one SPI function, `dbo.lrFnGetBalanceSummary`, read-only. No `rw` object calls an SPI procedure or anything that writes data. Application code queries `rw` views only and never calls SPI procedures or functions itself. No SPI Application code or SPI database object is changed; the Excel engine is not used. Tests call SPI procedures read-only, locally, through a separate test-only reference login that cannot write to SPI tables directly; it inherits the restored database's `public` `EXECUTE` rights, so a unit test scans the test code and fails on any SPI call outside the approved R4 list (research R9); the users and `EXECUTE` grants that setup needs are allowed (O3, closed). The test-setup script changes data in `AlphaPMS_ResortWise_B` only. | PASS |
-| IV. Parity with the SPI Application | Field-by-field parity test over every active loan in `AlphaPMS_ResortWise`. Status is checked against the screen's procedures. For principal, the shown value comes from the engine; per O1 option (b), the reference is the SPI SQL function path, and the gap is recorded openly as a deviation in [Complexity Tracking](#complexity-tracking). That SQL reference cannot run under the reference login (it reaches `AlphaSales`), so the automated test compares status and as-of date only, and principal parity rests on the manual screen check (second deviation, 2026-10-26). | PASS with documented deviations (O1, T031 principal) |
+| IV. Parity with the SPI Application | Field-by-field parity test over every active loan in `AlphaPMS_ResortWise`. Status is checked against the screen's procedures. For principal, the shown value comes from the engine; per O1 option (b), the reference is the SPI SQL function path, and the gap is recorded openly as a deviation in [Complexity Tracking](#complexity-tracking). That SQL reference cannot run under the reference login (it reaches `AlphaSales`), so the automated test compares status and as-of date only, and principal parity rests on the manual screen check (second deviation, O4, 2026-10-26). | PASS with documented deviations (O1, O4) |
 | V. Public repo hygiene | No SPI source, function logic, formulas, or form paths committed. Config placeholders only. Synthetic fixtures. Parity values read at run time. Key hashes only, and only in local config. | PASS |
 | VI. Stable error contract | Codes fixed in the contract; one error writer; messages are constants with no exception text. | PASS |
 | VII. Tested against SPI data | Unit tests on GitHub (`Category!=Database`); database tests local only; the PR run summary reports counts only. Setup script checks `DB_NAME()` first and changes only `AlphaPMS_ResortWise_B`. Applying `rw` scripts to `AlphaPMS_ResortWise` adds views only and changes no data. | PASS |
 | VIII. URL-path versioning | `/v1` prefix. The reduced field set is fixed before first release. Adding the engine fields later as optional fields is not breaking. | PASS |
 
 **Gate result**: PASS for Principles I–III and V–VIII. Principle IV passes with the documented
-deviations in Complexity Tracking (O1 option (b), and the T031 principal reference); Farzin's
+deviations in Complexity Tracking (O1 option (b), and O4, the T031 principal reference); Farzin's
 approval in PR review is the sign-off for both.
 
 **Post-design re-check (after Phase 1)**: same result. data-model.md and the contract match the
@@ -250,7 +250,7 @@ database tests (Principle VII). `db/rw` holds every versioned `rw` script (Princ
 
 ## Complexity Tracking
 
-Two deviations are justified in this plan (O1 option (b), decided 2026-10-23, and the T031
+Two deviations are justified in this plan (O1 option (b), decided 2026-10-23, and O4, the T031
 principal reference, decided 2026-10-26):
 
 | Deviation | Why needed | Evidence | Sign-off |
