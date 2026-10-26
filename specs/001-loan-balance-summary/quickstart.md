@@ -7,18 +7,46 @@ variables.
 ## Prerequisites
 
 - .NET 8 SDK, Docker, `sqlcmd`
-- Local SQL Server with `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` restored
+- A SQL Server, usually remote, with `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` restored,
+  reachable from this machine
+- An owner-level **SQL login** for the database steps below (`db_owner` in both test databases,
+  plus `ALTER ANY LOGIN` on the server for the one-time login step). Windows authentication is
+  not used.
+- `sqlcmd` is configured only through the environment variables `SQLCMDSERVER`, `SQLCMDUSER`,
+  and `SQLCMDPASSWORD`, set in your local session or user profile. Every `sqlcmd` command below
+  passes only `-d <database>`, never `-S`, `-U`, `-P`, or `-E`, so the server address, login name,
+  and password never appear on a command line or in this repository.
 
 ## 1. Apply the `rw` scripts and create the logins
 
-Apply the scripts with an owner-level local connection (Windows authentication). `RW_MIGRATE_A`
-and `RW_MIGRATE_B` hold those connection strings for `AlphaPMS_ResortWise` and
-`AlphaPMS_ResortWise_B`.
+Apply the scripts with the owner-level SQL login from the `SQLCMD*` variables. The migrator reads
+its connection string from the environment variable named by `--connection-env`. Build
+`RW_MIGRATE_A` and `RW_MIGRATE_B` from the `SQLCMD*` variables **in the current PowerShell
+session only**: they are never printed, never saved to a file, and removed when the run ends.
 
 ```powershell
-dotnet run --project tools/ResortWise.RwMigrator -- --connection-env RW_MIGRATE_A
-dotnet run --project tools/ResortWise.RwMigrator -- --connection-env RW_MIGRATE_B
+foreach ($pair in @(@('RW_MIGRATE_A', 'AlphaPMS_ResortWise'), @('RW_MIGRATE_B', 'AlphaPMS_ResortWise_B'))) {
+  $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
+  $b['Data Source'] = $env:SQLCMDSERVER; $b['Initial Catalog'] = $pair[1]
+  $b['User ID'] = $env:SQLCMDUSER; $b['Password'] = $env:SQLCMDPASSWORD
+  # Add the Encrypt / TrustServerCertificate settings your server needs (the same as in the RW_DB_* strings).
+  Set-Item "env:$($pair[0])" $b.ConnectionString
+  dotnet run --project tools/ResortWise.RwMigrator -- --connection-env $pair[0]
+  Remove-Item "env:$($pair[0])"
+}
 ```
+
+Before a run, check that each connection reaches the right database and that the journal is as
+expected (read-only):
+
+```powershell
+foreach ($db in 'AlphaPMS_ResortWise', 'AlphaPMS_ResortWise_B') {
+  sqlcmd -d $db -b -Q "SELECT DB_NAME() AS db, HAS_PERMS_BY_NAME('rw','SCHEMA','ALTER') AS alter_rw; SELECT ScriptName FROM rw.SchemaVersions ORDER BY ScriptName;"
+}
+```
+
+The second query fails on a database that has no schema `rw` yet; that is expected before the
+first run.
 
 Expected: on a database without schema `rw`, the migrator first runs
 `db/rw/bootstrap/create_schema_and_journal.sql` (schema `rw` and `rw.SchemaVersions`), then
@@ -39,11 +67,11 @@ $api = [Net.NetworkCredential]::new('', (Read-Host 'Password for rw_api' -AsSecu
 $ref = [Net.NetworkCredential]::new('', (Read-Host 'Password for rw_parity_ref' -AsSecureString)).Password
 
 # Once per server
-sqlcmd -S <server> -E -b -v ApiPwd="$api" RefPwd="$ref" -Q 'CREATE LOGIN rw_api WITH PASSWORD = N''$(ApiPwd)'', CHECK_POLICY = ON; CREATE LOGIN rw_parity_ref WITH PASSWORD = N''$(RefPwd)'', CHECK_POLICY = ON;'
+sqlcmd -b -v ApiPwd="$api" RefPwd="$ref" -Q 'CREATE LOGIN rw_api WITH PASSWORD = N''$(ApiPwd)'', CHECK_POLICY = ON; CREATE LOGIN rw_parity_ref WITH PASSWORD = N''$(RefPwd)'', CHECK_POLICY = ON;'
 
 # In each test database
 foreach ($db in 'AlphaPMS_ResortWise', 'AlphaPMS_ResortWise_B') {
-  sqlcmd -S <server> -d $db -E -b -Q 'CREATE USER rw_api FOR LOGIN rw_api; GRANT SELECT ON SCHEMA::rw TO rw_api; DENY SELECT, EXECUTE ON SCHEMA::dbo TO rw_api; CREATE USER rw_parity_ref FOR LOGIN rw_parity_ref; ALTER ROLE db_datareader ADD MEMBER rw_parity_ref; ALTER ROLE db_denydatawriter ADD MEMBER rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanDetails TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanStatusTypes TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetTransactionActivity TO rw_parity_ref;'
+  sqlcmd -d $db -b -Q 'CREATE USER rw_api FOR LOGIN rw_api; GRANT SELECT ON SCHEMA::rw TO rw_api; DENY SELECT, EXECUTE ON SCHEMA::dbo TO rw_api; CREATE USER rw_parity_ref FOR LOGIN rw_parity_ref; ALTER ROLE db_datareader ADD MEMBER rw_parity_ref; ALTER ROLE db_denydatawriter ADD MEMBER rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanDetails TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanStatusTypes TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetTransactionActivity TO rw_parity_ref;'
 }
 Remove-Variable api, ref
 ```
@@ -63,11 +91,12 @@ Remove-Variable api, ref
 
 ## 2. Prepare tenant B
 
-Run it by hand with an owner-level local connection. The database tests do not run it, so they
-need no login that can write.
+Run it by hand with the owner-level SQL login from the `SQLCMD*` variables, always with an explicit
+`-d AlphaPMS_ResortWise_B`. The database tests do not run it, so they need no login that can
+write.
 
 ```powershell
-sqlcmd -S <server> -d AlphaPMS_ResortWise_B -E -b -i tests/db/setup/B001__diverge_tenant_b.sql
+sqlcmd -d AlphaPMS_ResortWise_B -b -i tests/db/setup/B001__diverge_tenant_b.sql
 ```
 
 Expected: the script succeeds on `AlphaPMS_ResortWise_B`. Never run it against
@@ -118,7 +147,9 @@ Each request writes exactly one JSON audit line to stdout, with no amounts.
 ## 7. Tests
 
 The database tests read these environment variables. Set them in the local session only; never
-put them in a committed file.
+put them in a committed file. All four connection strings point to the same remote server and use
+SQL logins (`rw_api` or `rw_parity_ref`), never Windows authentication and never the owner-level
+login.
 
 | Variable | Value |
 | --- | --- |

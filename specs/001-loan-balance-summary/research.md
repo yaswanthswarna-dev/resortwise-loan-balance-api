@@ -158,8 +158,9 @@ before release. The `rw.Loan` view exposes the column as `LoanId`.
     tests use it to read reference values. Because a procedure's own writes would bypass
     `db_denydatawriter` through ownership chaining, `EXECUTE` is granted only on procedures that
     the screen analysis shows are SELECT-only.
-  - Applying `rw` scripts and running the tenant B setup script use a local owner-level
-    connection (Windows authentication), not either login.
+  - Applying `rw` scripts and running the tenant B setup script use an owner-level SQL login on
+    the (remote) test server, supplied only through the `SQLCMD*` environment variables (never
+    Windows authentication), not either login above (quickstart steps 1 and 2).
 - A unit test (GitHub) scans `db/rw`, including `db/rw/bootstrap`, and fails if any
   `CREATE`/`ALTER`/`DROP`/`INSERT`/`UPDATE`/`DELETE`/`MERGE` targets anything other than schema
   `rw`, if any script contains `EXEC`, if a view references an SPI function not on an allowlist,
@@ -232,7 +233,7 @@ document replaces it.
     `lrTransaction` rows first, then `lrLoanReceivable`. Other tables with a loan ID column but
     no foreign key (backup, report, and conversion tables) are not read by the `rw` views and are
     left unchanged. The audit triggers on both tables are disabled in the restored database.
-  - Run by hand with an explicit `-d AlphaPMS_ResortWise_B` and an owner-level local connection
+  - Run by hand with an explicit `-d AlphaPMS_ResortWise_B` and the owner-level SQL login from the `SQLCMD*` variables
     (quickstart step 2). The test run does not execute it, so the database tests need no login
     that can write. Before the isolation tests, the fixture checks through the reference login on
     `AlphaPMS_ResortWise_B` that the rule's changes are present, and fails with "run quickstart
