@@ -20,7 +20,7 @@ T007 (research R2, R8, R9).
 | Field | Type | Rules |
 | --- | --- | --- |
 | `TenantId` (config key) | string | Non-blank. Compared ordinally. |
-| `ConnectionStringName` | string | Required. Must resolve to `ConnectionStrings:{name}`. Exactly one per tenant. |
+| `ConnectionStringName` | string | Required. Must resolve to `ConnectionStrings:{name}`. Exactly one per tenant. No two tenants may share a connection string name or value (approved 2026-10-26). |
 
 The registry is read once at startup and validated (research R6). It is immutable while the
 service runs; a change requires a restart.
@@ -78,7 +78,7 @@ One row per loan record.
 | --- | --- |
 | `LoanId` | `lrLoanReceivable.ID` |
 | `AsOfDate` | `CAST(GETDATE() AS date)`, the same clock the function call uses |
-| `PrincipalBalance` | `LoanStatusId = 1`: `principalRemaining` (`money`, scale 4) from the table-valued function `dbo.lrFnGetBalanceSummary(ID, GETDATE())` through `CROSS APPLY`, rounded to 2 places by `CAST(... AS decimal(19,2))` (half away from zero, as the screen does; research R2), confirmed by the parity test. Any other status: `0.00` (spec FR-008a; decided in O2), and the function is not called |
+| `PrincipalBalance` | `LoanStatusId = 1`: `principalRemaining` (`money`, scale 4) from the table-valued function `dbo.lrFnGetBalanceSummary(ID, GETDATE())` through `OUTER APPLY` (so a record never drops out of the view; approved 2026-10-26), rounded to 2 places by `CAST(... AS decimal(19,2))` (half away from zero, as the screen does; research R2), confirmed by the parity test. Any other status: `0.00` (spec FR-008a; decided in O2), and the function is not called |
 
 The function returns a per-contract value; the status rule is what keeps the result per loan
 record (plan, per-loan-record rule).
