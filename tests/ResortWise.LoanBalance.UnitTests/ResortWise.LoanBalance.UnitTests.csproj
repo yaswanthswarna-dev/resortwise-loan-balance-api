@@ -18,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\specs\001-loan-balance-summary\contracts\loan-balance-summary.openapi.yaml" Link="Contract\loan-balance-summary.openapi.yaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\ResortWise.LoanBalance.Api\ResortWise.LoanBalance.Api.csproj" />
   </ItemGroup>
 

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ResortWise.LoanBalance.Api.Audit;
 using ResortWise.LoanBalance.Api.Auth;
 using ResortWise.LoanBalance.Api.Errors;
+using ResortWise.LoanBalance.Api.Loans;
 using ResortWise.LoanBalance.Api.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +26,7 @@ builder.Services.AddSingleton<TenantRegistry>();
 
 builder.Services.AddScoped<RequestContext>();
 builder.Services.AddScoped<ITenantConnectionFactory, TenantConnectionFactory>();
+builder.Services.AddScoped<ILoanBalanceRepository, LoanBalanceRepository>();
 
 builder.Services.AddAuthentication(ApiKeyAuthenticationHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, null);
@@ -38,6 +40,7 @@ app.UseAuthentication();
 app.UseMiddleware<TenantAccessMiddleware>();
 
 // The balance summary is the only endpoint. The OpenAPI contract is not served (research R11).
+app.MapBalanceSummary();
 
 app.Run();
 
