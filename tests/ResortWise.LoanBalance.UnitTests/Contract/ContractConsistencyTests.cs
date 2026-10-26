@@ -6,6 +6,7 @@ using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Microsoft.OpenApi.Readers;
 using ResortWise.LoanBalance.Api.Errors;
+using ResortWise.LoanBalance.Api.Loans;
 using ResortWise.LoanBalance.Api.Loans.Models;
 using ResortWise.LoanBalance.UnitTests.Infrastructure;
 
@@ -50,15 +51,38 @@ public sealed class ContractConsistencyTests
     [Fact]
     public void Response_model_matches_the_contract_schema()
     {
-        string[] expected = ["asOfDate", "loanId", "loanStatus", "principalBalance"];
+        string[] required = ["asOfDate", "loanId", "loanStatus", "principalBalance", "principalBalanceAvailable"];
+        string[] all = [.. required, "principalUnavailableReason"];
         var schema = Document.Value.Components.Schemas["LoanBalanceSummary"];
 
         var modelFields = typeof(LoanBalanceSummaryResponse).GetProperties()
             .Select(property => property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name)
             .Order(StringComparer.Ordinal);
 
-        Assert.Equal(expected, schema.Required.Order(StringComparer.Ordinal));
-        Assert.Equal(expected, schema.Properties.Keys.Order(StringComparer.Ordinal));
-        Assert.Equal(expected, modelFields);
+        Assert.Equal(required, schema.Required.Order(StringComparer.Ordinal));
+        Assert.Equal(all.Order(StringComparer.Ordinal), schema.Properties.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(all.Order(StringComparer.Ordinal), modelFields);
+    }
+
+    // OpenAPI 3.0.3 applies nullable only with a type in the same schema object, so null must be
+    // allowed there, not through a $ref or allOf (O2; analyze D1).
+    [Fact]
+    public void Principal_balance_is_a_nullable_number_in_its_own_schema()
+    {
+        var principal = Document.Value.Components.Schemas["LoanBalanceSummary"].Properties["principalBalance"];
+
+        Assert.Equal("number", principal.Type);
+        Assert.True(principal.Nullable);
+        Assert.Null(principal.Reference);
+        Assert.Empty(principal.AllOf);
+    }
+
+    [Fact]
+    public void Unavailable_reason_enum_equals_the_reason_constants()
+    {
+        var reasons = Document.Value.Components.Schemas["LoanBalanceSummary"].Properties["principalUnavailableReason"].Enum
+            .Select(value => ((OpenApiString)value).Value);
+
+        Assert.Equal(PrincipalUnavailableReasons.All.Order(StringComparer.Ordinal), reasons.Order(StringComparer.Ordinal));
     }
 }

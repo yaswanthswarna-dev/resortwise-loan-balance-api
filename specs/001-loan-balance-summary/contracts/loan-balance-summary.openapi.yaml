@@ -232,13 +232,16 @@ components:
             this can differ from the resort's local date. Callers cannot request another date.
           example: '2026-10-22'
         principalBalance:
-          allOf:
-            - $ref: '#/components/schemas/Amount'
+          type: number
+          format: decimal
+          multipleOf: 0.01
           nullable: true
           description: |
-            Principal Remaining for this loan record. Always present. A number when
-            `principalBalanceAvailable` is `true`; `null` when it is `false`. Never `0.00` in
-            place of an unavailable value.
+            Principal Remaining for this loan record. Always present. When
+            `principalBalanceAvailable` is `true`, an exact decimal amount with two decimal
+            places, as the SPI Application shows it; it may be negative where the SPI Application
+            shows a negative value. When `principalBalanceAvailable` is `false`, `null`. Never
+            `0.00` in place of an unavailable value.
         principalBalanceAvailable:
           type: boolean
           description: |
@@ -258,13 +261,6 @@ components:
         asOfDate: '2026-10-22'
         principalBalance: 12500.00
         principalBalanceAvailable: true
-    Amount:
-      type: number
-      format: decimal
-      multipleOf: 0.01
-      description: |
-        An exact decimal amount with two decimal places, as the SPI Application shows it. May be
-        negative where the SPI Application shows a negative value.
     Error:
       type: object
       required: [code, message]

@@ -5,16 +5,16 @@ using ResortWise.LoanBalance.DbTests.Infrastructure;
 namespace ResortWise.LoanBalance.DbTests.Parity;
 
 /// <summary>
-/// Every non-active loan record in <c>AlphaPMS_ResortWise</c> returns its own status name and
-/// principal <c>0.00</c> (FR-008a, O2). Failures name the loan ID and field only, in git-ignored
-/// <c>TestResults/</c>.
+/// Every non-active loan record in <c>AlphaPMS_ResortWise</c> returns its own status name, principal
+/// <c>null</c> (never <c>0.00</c>), not available, and reason <c>LOAN_NOT_ACTIVE</c> (FR-006,
+/// FR-008a, O2). Failures name the loan ID and field only, in git-ignored <c>TestResults/</c>.
 /// </summary>
 [Trait("Category", "Database")]
 [Collection(DatabaseCollection.Name)]
 public sealed class NonActiveLoanTests(DatabaseFixture fixture)
 {
     [DatabaseFact]
-    public async Task Every_non_active_loan_returns_its_status_and_zero_principal()
+    public async Task Every_non_active_loan_returns_its_status_and_no_principal()
     {
         var loans = new List<(int LoanId, string? Status)>();
         await using (var db = await DatabaseFixture.OpenAsync(fixture.RefA))
@@ -53,9 +53,22 @@ public sealed class NonActiveLoanTests(DatabaseFixture fixture)
                 failures.Add($"{loanId}: loanStatus");
             }
 
-            if (json.RootElement.GetProperty("principalBalance").GetRawText() != "0.00")
+            var principal = json.RootElement.GetProperty("principalBalance");
+            if (principal.ValueKind != JsonValueKind.Null)
             {
                 failures.Add($"{loanId}: principalBalance");
+            }
+
+            if (!json.RootElement.TryGetProperty("principalBalanceAvailable", out var available)
+                || available.ValueKind != JsonValueKind.False)
+            {
+                failures.Add($"{loanId}: principalBalanceAvailable");
+            }
+
+            if (!json.RootElement.TryGetProperty("principalUnavailableReason", out var reason)
+                || reason.GetString() != "LOAN_NOT_ACTIVE")
+            {
+                failures.Add($"{loanId}: principalUnavailableReason");
             }
         }
 

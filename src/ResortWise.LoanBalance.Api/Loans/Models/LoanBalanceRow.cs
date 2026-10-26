@@ -5,6 +5,8 @@ public sealed class LoanBalanceRow
 {
     public int LoanId { get; init; }
 
+    public int LoanStatusId { get; init; }
+
     public string? LoanStatusName { get; init; }
 
     public DateTime AsOfDate { get; init; }

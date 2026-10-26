@@ -9,19 +9,31 @@ namespace ResortWise.LoanBalance.UnitTests.Loans;
 
 public sealed class BalanceSummaryEndpointTests
 {
-    private static readonly string[] Fields = ["loanId", "loanStatus", "asOfDate", "principalBalance"];
+    private static readonly string[] ActiveFields = ["loanId", "loanStatus", "asOfDate", "principalBalance", "principalBalanceAvailable"];
+    private static readonly string[] NonActiveFields = [.. ActiveFields, "principalUnavailableReason"];
 
     [Fact]
-    public async Task Returns_exactly_the_four_fields()
+    public async Task Active_loan_returns_exactly_the_active_fields()
     {
         var (status, body) = await Get(new FakeLoanBalanceRepository().Add(100245, "Active", 12500.00m), 100245);
 
         Assert.Equal(HttpStatusCode.OK, status);
         using var json = JsonDocument.Parse(body);
-        Assert.Equal(Fields, json.RootElement.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(ActiveFields, json.RootElement.EnumerateObject().Select(property => property.Name));
         Assert.Equal(100245, json.RootElement.GetProperty("loanId").GetInt64());
         Assert.Equal("Active", json.RootElement.GetProperty("loanStatus").GetString());
         Assert.Equal("2026-10-22", json.RootElement.GetProperty("asOfDate").GetString());
+    }
+
+    [Fact]
+    public async Task Non_active_loan_returns_exactly_the_non_active_fields()
+    {
+        var (status, body) = await Get(new FakeLoanBalanceRepository().AddNonActive(100244, "Rewritten"), 100244);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(NonActiveFields, json.RootElement.EnumerateObject().Select(property => property.Name));
+        Assert.Equal("Rewritten", json.RootElement.GetProperty("loanStatus").GetString());
     }
 
     [Theory]

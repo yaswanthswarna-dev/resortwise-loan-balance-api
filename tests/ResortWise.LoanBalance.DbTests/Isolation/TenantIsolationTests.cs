@@ -52,9 +52,24 @@ public sealed class TenantIsolationTests(DatabaseFixture fixture)
                 failures.Add($"{loanId}: tenant B loanStatus");
             }
 
-            if (jsonB.RootElement.GetProperty("principalBalance").GetRawText() != "0.00")
+            // Tenant A: active, so the principal is a number and available.
+            if (jsonA.RootElement.GetProperty("principalBalance").ValueKind != JsonValueKind.Number
+                || jsonA.RootElement.GetProperty("principalBalanceAvailable").ValueKind != JsonValueKind.True)
+            {
+                failures.Add($"{loanId}: tenant A principal");
+            }
+
+            // Tenant B: made non-active by T045, so null, not available, LOAN_NOT_ACTIVE (O2).
+            if (jsonB.RootElement.GetProperty("principalBalance").ValueKind != JsonValueKind.Null)
             {
                 failures.Add($"{loanId}: tenant B principalBalance");
+            }
+
+            if (jsonB.RootElement.GetProperty("principalBalanceAvailable").ValueKind != JsonValueKind.False
+                || !jsonB.RootElement.TryGetProperty("principalUnavailableReason", out var reasonB)
+                || reasonB.GetString() != "LOAN_NOT_ACTIVE")
+            {
+                failures.Add($"{loanId}: tenant B principal availability");
             }
 
             if (a.Body == b.Body)

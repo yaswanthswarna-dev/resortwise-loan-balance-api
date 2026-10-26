@@ -13,17 +13,32 @@ public sealed class FakeLoanBalanceRepository : ILoanBalanceRepository
 
     public Exception? Throw { get; set; }
 
-    public FakeLoanBalanceRepository Add(int loanId, string status, decimal principal, DateTime? asOf = null)
+    /// <summary>An active record (status ID 1), as <c>rw.Loan</c> and V003 return it.</summary>
+    public FakeLoanBalanceRepository Add(int loanId, string status, decimal principal, DateTime? asOf = null) =>
+        AddRow(loanId, ActiveStatusId, status, principal, asOf);
+
+    /// <summary>A non-active record: V003 returns a NULL principal for it (O2).</summary>
+    public FakeLoanBalanceRepository AddNonActive(int loanId, string status) =>
+        AddRow(loanId, NonActiveStatusId, status, null);
+
+    /// <summary>Any row, including ones the view should never return, to test the endpoint's guards.</summary>
+    public FakeLoanBalanceRepository AddRow(int loanId, int statusId, string status, decimal? principal, DateTime? asOf = null)
     {
         rows[loanId] = new LoanBalanceRow
         {
             LoanId = loanId,
+            LoanStatusId = statusId,
             LoanStatusName = status,
             AsOfDate = asOf ?? new DateTime(2026, 10, 22),
             PrincipalBalance = principal,
         };
         return this;
     }
+
+    public const int ActiveStatusId = 1;
+
+    // Synthetic: any status ID other than 1 is non-active.
+    public const int NonActiveStatusId = 2;
 
     public Task<LoanBalanceRow?> GetAsync(int loanId, CancellationToken cancellationToken)
     {
