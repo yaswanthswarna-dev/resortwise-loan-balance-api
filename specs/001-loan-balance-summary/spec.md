@@ -43,7 +43,7 @@
   belongs to the payoff feature.
 - Q: What does the API return for an old, rewritten loan ID? → A: (a) The API works per loan
   record. An old, rewritten loan ID returns that loan record's own balance summary with its
-  non-active status. Last Payment and the YTD totals are not returned by this API, so the
+  non-active status (principal not available since 2026-10-26, see O2). Last Payment and the YTD totals are not returned by this API, so the
   per-contract behavior of the Balance Summary tab does not affect it.
 - Q: Should test loans with conflicting values on the same screen be excluded from the parity
   test? → A: No. They stay in the parity test, because the API only has to match the chosen screen
@@ -207,6 +207,9 @@ the documented status, code, and field.
   is outside the SC-001 parity scope because it is not active.
 - **Active loan whose principal cannot be read** (the view returns no principal for an active
   record): HTTP 500 `INTERNAL_ERROR`. `null` principal is never returned for an active record.
+- **Non-active loan whose view row carries a principal** (the view returns a principal for a
+  record whose status is not "Active"): HTTP 500 `INTERNAL_ERROR`. A principal is never returned
+  for a non-active record, so the view and the API cannot disagree silently.
 - **Delinquent loan**: still has the "Active" status in SPI (past due is calculated from
   payments), so it is inside the SC-001 parity scope.
 - **Test loan with conflicting values on the same screen** (for example two different monthly
@@ -242,6 +245,8 @@ the documented status, code, and field.
   - Loan ID and loan status: the Loan Summary Information tab, Current Payment Information
     section, as of today.
   - As-of date: the SQL Server's current date (see [Assumptions](#assumptions)).
+  - Principal balance available and principal unavailable reason: no screen source. Both are
+    derived from the loan status alone, by the rule in FR-008a.
   - Payoff Information (as of the Valid Through date) is not a parity source; it belongs to the
     payoff feature.
 
@@ -424,8 +429,8 @@ The questions below were answered by Farzin on 2026-10-22 and are closed. See
     tracker reference, the affected field, and the escalation status, never with a loan ID or
     value. The feature is not done while any such entry is unresolved. No entries are open.
 - **Rewritten loans**: *Status*: Closed. Decision (a): the API works per loan record, and an old,
-  rewritten loan ID returns that loan record's own balance summary with its non-active status.
-  The per-contract behavior of the Balance Summary tab (Last Payment and YTD totals including the
+  rewritten loan ID returns that loan record's own balance summary with its non-active status
+  (principal not available, see O2). The per-contract behavior of the Balance Summary tab (Last Payment and YTD totals including the
   old loan's payments) does not affect this API, because those fields are not returned. See
   FR-008a.
 - **Test loans with conflicting values**: *Status*: Closed. Such loans stay in the parity test,

@@ -252,7 +252,10 @@ components:
           description: |
             Why the principal is not available. Present only when `principalBalanceAvailable` is
             `false`; absent otherwise. A stable code: clients map it by value, and it is never
-            renamed within `/v1`. `LOAN_NOT_ACTIVE`: the loan record's status is not `Active`.
+            renamed or repurposed within `/v1`. New reasons may be added within `/v1`, so clients
+            must treat a reason they do not recognize as "principal not available" and rely on
+            `principalBalanceAvailable`. `LOAN_NOT_ACTIVE`: the loan record's status is not
+            `Active`.
           enum:
             - LOAN_NOT_ACTIVE
       example:
