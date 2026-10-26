@@ -106,10 +106,14 @@ script.
 
 ## 3. Create a caller key
 
+Works in Windows PowerShell 5.1 and PowerShell 7:
+
 ```powershell
-$bytes = [byte[]]::new(32); [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$bytes = New-Object byte[] 32
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); $rng.Dispose()
 $key = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_')
-$hash = -join ([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($key)) | % { $_.ToString('x2') })
+$sha = [Security.Cryptography.SHA256]::Create()
+$hash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($key)) | ForEach-Object { $_.ToString('x2') }); $sha.Dispose()
 ```
 
 Give `$key` to the caller. Put only `$hash` in configuration.
