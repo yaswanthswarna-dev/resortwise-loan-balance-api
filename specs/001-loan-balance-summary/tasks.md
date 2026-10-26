@@ -149,13 +149,13 @@ the documented status and code, and no loan data is read.
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T039 [P] [US2] Write `UnitTests/Loans/AccessControlTests.cs` with `WebApplicationFactory` and a fake repository and connection factory that count calls: no credential and invalid credential → 401 `UNAUTHENTICATED`; missing, empty, and whitespace-only `X-Tenant-Id` → 400 `TENANT_REQUIRED` with field `X-Tenant-Id`; tenant not allowed → 403 `TENANT_FORBIDDEN`; unknown tenant → 403 with a byte-identical body; in every case the repository and connection factory are called 0 times (FR-012)
-- [ ] T040 [P] [US2] Write `UnitTests/Loans/AccessCheckOrderTests.cs`: requests with several access problems at once return the first failure in the order credential (401) → tenant header (400) → tenant authorization (403), using a valid loan ID so no loan check is involved (spec Edge Cases). The loan ID and 404 cases are in T049
-- [ ] T041 [P] [US2] Write `DbTests/EndToEnd/AccessEndToEndTests.cs`: the same 401, 400, and 403 cases through the real pipeline and real tenant databases, and a 503 `TENANT_UNAVAILABLE` case using a tenant whose connection string points to an unreachable server (a synthetic `localhost` port), with no fallback to another tenant
+- [X] T039 [P] [US2] Write `UnitTests/Loans/AccessControlTests.cs` with `WebApplicationFactory` and a fake repository and connection factory that count calls: no credential and invalid credential → 401 `UNAUTHENTICATED`; missing, empty, and whitespace-only `X-Tenant-Id` → 400 `TENANT_REQUIRED` with field `X-Tenant-Id`; tenant not allowed → 403 `TENANT_FORBIDDEN`; unknown tenant → 403 with a byte-identical body; in every case the repository and connection factory are called 0 times (FR-012)
+- [X] T040 [P] [US2] Write `UnitTests/Loans/AccessCheckOrderTests.cs`: requests with several access problems at once return the first failure in the order credential (401) → tenant header (400) → tenant authorization (403), using a valid loan ID so no loan check is involved (spec Edge Cases). The loan ID and 404 cases are in T049
+- [X] T041 [P] [US2] Write `DbTests/EndToEnd/AccessEndToEndTests.cs`: the same 401, 400, and 403 cases through the real pipeline and real tenant databases, and a 503 `TENANT_UNAVAILABLE` case using a tenant whose connection string points to an unreachable server (a synthetic `localhost` port), with no fallback to another tenant
 
 ### Implementation for User Story 2
 
-- [ ] T042 [US2] Fix any failures from T039–T041 in `Api/Tenancy/TenantAccessMiddleware.cs`, `Api/Auth/ApiKeyAuthenticationHandler.cs`, or the middleware order in `Api/Program.cs`; the refusal bodies match the contract's `Unauthenticated`, `TenantForbidden`, and `400` examples exactly
+- [X] T042 [US2] Fix any failures from T039–T041 in `Api/Tenancy/TenantAccessMiddleware.cs`, `Api/Auth/ApiKeyAuthenticationHandler.cs`, or the middleware order in `Api/Program.cs`; the refusal bodies match the contract's `Unauthenticated`, `TenantForbidden`, and `400` examples exactly. **Note (2026-10-26)**: T039–T041 passed without changes
 
 **Checkpoint**: User Stories 1 and 2 both work; no refused request touches a tenant database
 
