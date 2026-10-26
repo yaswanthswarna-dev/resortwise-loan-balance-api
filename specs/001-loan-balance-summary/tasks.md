@@ -212,8 +212,8 @@ documented status, code, and field.
 
 **Purpose**: Performance, documentation, local test run, decisions, and PR readiness
 
-- [ ] T053 [P] Create `tools/load-check.ps1`: a local script that sends a sustained 10 requests/second per tenant to both tenants (20 requests/second total) for 60 seconds and prints the p95 latency and error count only, no response bodies (SC-006, research R14)
-- [ ] T054 [P] Update `specs/001-loan-balance-summary/checklists/requirements.md` for the reduced scope: remove items about the out-of-scope fields and Other bucket names
+- [ ] T053 [P] Create `tools/load-check.ps1`: a local script that sends a sustained 10 requests/second per tenant to both tenants (20 requests/second total) for 60 seconds and prints the p95 latency and error count only, no response bodies (SC-006, research R14). **Note (2026-10-26)**: script written; not run yet
+- [X] T054 [P] Update `specs/001-loan-balance-summary/checklists/requirements.md` for the reduced scope: remove items about the out-of-scope fields and Other bucket names
 - [ ] T055 Walk through `specs/001-loan-balance-summary/quickstart.md` end to end on the local databases (apply scripts and create logins, prepare tenant B, create keys, configure, run, smoke checks, tests) and fix any step that is wrong in `specs/001-loan-balance-summary/quickstart.md`
 - [ ] T056 Run the full local test suite with `RW_DB_TESTS=1` and the quickstart step 7 variables (unit and database) and `tools/load-check.ps1`; all tests pass with 0 parity mismatches and p95 under 1 s. Keep `TestResults/run-summary.txt` for the PR (date, database name, loans checked, passed and failed counts only)
 - [X] T057 Before the PR, record the decisions in `specs/001-loan-balance-summary/plan.md` and `specs/001-loan-balance-summary/spec.md`: O1 option (b) with the Principle IV deviation in Complexity Tracking, O2 confirmed, O3 allowed, and O1–O3 closed in the spec's Open Questions (done 2026-10-23). If T038 finds a status that does not show 0, update O2 here after Farzin's answer. Run `git diff --cached` for secrets and real data before every commit
