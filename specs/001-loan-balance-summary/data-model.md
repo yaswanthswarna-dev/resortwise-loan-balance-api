@@ -2,8 +2,8 @@
 
 **Feature**: [spec.md](spec.md) | **Plan**: [plan.md](plan.md) | **Research**: [research.md](research.md)
 
-All examples are synthetic. SPI table and column names marked *(confirm)* are verified from the
-local schema in the first implementation task.
+All examples are synthetic. SPI table and column names were confirmed from the local schema in
+T007 (research R2, R8, R9).
 
 ## Configuration entities
 
@@ -65,10 +65,10 @@ One row per loan record. Read from SPI tables only.
 
 | Column | From |
 | --- | --- |
-| `LoanId` | `lrLoanReceivable` |
-| `LoanStatusId` | `lrLoanReceivable` |
-| `LoanStatusName` | Loan status type table *(confirm)* |
-| `SalesContractId` | `lrLoanReceivable` |
+| `LoanId` | `lrLoanReceivable.ID` (`int`) |
+| `LoanStatusId` | `lrLoanReceivable.LoanStatusId` (`int`) |
+| `LoanStatusName` | `lrLoanStatus.LoanStatusName` (`varchar(25)`, nullable), joined on `lrLoanStatus.ID` |
+| `SalesContractId` | `lrLoanReceivable.SalesContractId` (`int`) |
 
 ### `rw.LoanPrincipalBalance`
 
@@ -76,9 +76,9 @@ One row per loan record.
 
 | Column | Value |
 | --- | --- |
-| `LoanId` | `lrLoanReceivable` |
+| `LoanId` | `lrLoanReceivable.ID` |
 | `AsOfDate` | `CAST(GETDATE() AS date)`, the same clock the function call uses |
-| `PrincipalBalance` | `LoanStatusId = 1`: the principal from `dbo.lrFnGetBalanceSummary(LoanId, today)` *(confirm function type, column, and column data type)*, cast to `decimal(19,2)` only if its scale is at most 2; otherwise rounded exactly as the screen does, confirmed by the parity test. Any other status: `0.00` (spec FR-008a; decided in O2), and the function is not called |
+| `PrincipalBalance` | `LoanStatusId = 1`: `principalRemaining` (`money`, scale 4) from the table-valued function `dbo.lrFnGetBalanceSummary(ID, GETDATE())` through `CROSS APPLY`, rounded to 2 places by `CAST(... AS decimal(19,2))` (half away from zero, as the screen does; research R2), confirmed by the parity test. Any other status: `0.00` (spec FR-008a; decided in O2), and the function is not called |
 
 The function returns a per-contract value; the status rule is what keeps the result per loan
 record (plan, per-loan-record rule).

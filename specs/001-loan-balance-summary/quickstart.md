@@ -43,7 +43,7 @@ sqlcmd -S <server> -E -b -v ApiPwd="$api" RefPwd="$ref" -Q 'CREATE LOGIN rw_api 
 
 # In each test database
 foreach ($db in 'AlphaPMS_ResortWise', 'AlphaPMS_ResortWise_B') {
-  sqlcmd -S <server> -d $db -E -b -Q 'CREATE USER rw_api FOR LOGIN rw_api; GRANT SELECT ON SCHEMA::rw TO rw_api; DENY SELECT, EXECUTE ON SCHEMA::dbo TO rw_api; CREATE USER rw_parity_ref FOR LOGIN rw_parity_ref; ALTER ROLE db_datareader ADD MEMBER rw_parity_ref; ALTER ROLE db_denydatawriter ADD MEMBER rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanDetails TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanMasterInfo TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanStatusTypes TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetTransactionActivity TO rw_parity_ref;'
+  sqlcmd -S <server> -d $db -E -b -Q 'CREATE USER rw_api FOR LOGIN rw_api; GRANT SELECT ON SCHEMA::rw TO rw_api; DENY SELECT, EXECUTE ON SCHEMA::dbo TO rw_api; CREATE USER rw_parity_ref FOR LOGIN rw_parity_ref; ALTER ROLE db_datareader ADD MEMBER rw_parity_ref; ALTER ROLE db_denydatawriter ADD MEMBER rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanDetails TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetLoanStatusTypes TO rw_parity_ref; GRANT EXECUTE ON dbo.lrGetTransactionActivity TO rw_parity_ref;'
 }
 Remove-Variable api, ref
 ```
@@ -54,7 +54,10 @@ Remove-Variable api, ref
   Server does not check permissions on objects a view reaches through the same owner (`dbo`).
 - **`rw_parity_ref`** is the test-only reference login: read-only on SPI tables, plus `EXECUTE` on
   only the read-only SPI procedures in research R4. Never grant it `EXECUTE` on any other
-  procedure, because a procedure's own writes would bypass `db_denydatawriter`.
+  procedure, because a procedure's own writes would bypass `db_denydatawriter`. It also inherits
+  the `EXECUTE` rights the restored database gives `public`; these are accepted, and no `DENY` is
+  added on SPI objects. The unit test `TestCodeSpiCallTests` fails if test code calls any SPI
+  procedure or function outside the approved list (research R9).
 - Users and grants change no data or SPI object definitions. Granting `EXECUTE` on SPI
   procedures to `rw_parity_ref` is allowed (plan, O3, closed 2026-10-23).
 

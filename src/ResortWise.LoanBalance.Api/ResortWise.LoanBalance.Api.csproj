@@ -5,4 +5,9 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="ResortWise.LoanBalance.UnitTests" />
+    <InternalsVisibleTo Include="ResortWise.LoanBalance.DbTests" />
+  </ItemGroup>
+
 </Project>

@@ -33,12 +33,14 @@ calculates are out of scope (spec Out of Scope).
   called directly: it takes the contract, not the loan, so the view would need to resolve the
   contract itself. Calling `dbo.lrFnGetBalanceSummary` with the loan ID matches the screen's
   path exactly.
-- **To confirm locally** (first implementation task): the function's type (inline table-valued
-  or scalar), its principal output column, and that column's data type (precision and scale).
-  If the scale is at most 2, the view casts to `decimal(19,2)` and no rounding happens. If it is
-  greater than 2, the view rounds exactly as the screen does before the cast, and the parity
-  test confirms it (FR-003). Also confirm that no contract has more than one active loan record (count
-  only). See the plan for what happens if it does.
+- **Confirmed locally (T007, 2026-10-23)**: `dbo.lrFnGetBalanceSummary` is a table-valued
+  function with parameters `@Loanid int` and `@curdate datetime`. Its principal output column is
+  `principalRemaining`, type `money` (precision 19, **scale 4**). Because the scale is greater
+  than 2, the view rounds to 2 places as the screen does: `CAST(... AS decimal(19,2))`, which
+  rounds half away from zero like the SPI Application's .NET money formatting (decided
+  2026-10-23). A local count found 1 active loan in `AlphaPMS_ResortWise` whose principal has
+  non-zero third or fourth decimals; the parity test confirms the rule. No contract has more than
+  one active loan record (count 0).
 
 ## R3. Excel-engine values
 
@@ -54,13 +56,17 @@ table) is **not** used.
 | Field | Reference |
 | --- | --- |
 | Active loan list | Read-only `SELECT` of loan IDs with `LoanStatusId = 1` (test code only) |
-| `loanStatus` | `lrGetLoanDetails` (`@LoanId`, `@SalesContractId`) for the status ID; `lrGetLoanStatusTypes` (through `lrGetLoanMasterInfo`) for the name |
-| `principalBalance` (active loans) | `lrGetTransactionActivity`, second result set, `PrincipalRemaining`. This is the screen's SQL path; the shown value comes from the engine (O1) |
+| `loanStatus` | `lrGetLoanDetails` (`@Loanid int`, `@SalesContractId int`) for the status ID; `lrGetLoanStatusTypes` (no parameters) for the name |
+| `principalBalance` (active loans) | `lrGetTransactionActivity` (`@Ownerid char`, `@SalesContractId int`; per contract, not per loan), second result set, `PrincipalRemaining`, compared after the same `decimal(19,2)` cast. The test reads each active loan's owner and contract IDs read-only at run time and never logs or saves them. This is the screen's SQL path; the shown value comes from the engine (O1) |
 | `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the view returns `0.00` for every non-active record; the screen check for an old rewritten record is manual (plan) |
 | `asOfDate` | `CAST(GETDATE() AS date)` on the reference connection, read before and after the request; the response must equal one of them (midnight-safe) |
 
 **Connections**: every reference call above uses the test-only **reference login**, never the
 API login (R9).
+
+**Approved SPI calls in test code**: only `lrGetLoanDetails`, `lrGetLoanStatusTypes`, and
+`lrGetTransactionActivity` (procedures), plus read-only `SELECT`s on SPI tables. A unit test scans
+the test code and fails if it calls any other SPI procedure or function (R9).
 
 **Comparison rules**: exact `decimal` equality at 2 decimal places; strings exact, ordinal. A
 failure message names the loan ID and field. The results file goes to git-ignored `TestResults/`.
@@ -107,10 +113,9 @@ ProblemDetails.
 ## R8. Loan ID validation
 
 Validate the raw route string with `^[1-9][0-9]*$`, then range-check against the SPI loan ID
-column type. The type is **to be confirmed** in the first implementation task by reading
-`INFORMATION_SCHEMA` on the local database. The local server was not reachable during planning.
-If it is `int`, the maximum is 2147483647 and the contract gets `maximum: 2147483647`. That is
-allowed before release.
+column type. **Confirmed (T007)**: the loan record ID is `lrLoanReceivable.ID`, type `int`, so
+the maximum is 2147483647 and the contract gets `maximum: 2147483647` (T052). That is allowed
+before release. The `rw.Loan` view exposes the column as `LoanId`.
 
 ## R9. `rw` scripts and database permissions
 
@@ -151,9 +156,19 @@ allowed before release.
   or if the bootstrap script creates anything other than schema `rw` and table
   `rw.SchemaVersions`. The allowlist holds only `dbo.lrFnGetBalanceSummary`; adding a function to
   it is a reviewed change.
-- Exact SPI table and column names for the views (status type table, contract column) are **to
-  be confirmed** from the local schema and the read-only procedures' definitions in the first
-  implementation task.
+- **Confirmed (T007)**: the loan status type table is `dbo.lrLoanStatus` (`ID int`,
+  `LoanStatusName varchar(25)`, nullable), joined from `lrLoanReceivable.LoanStatusId` (`int`, not
+  null) by a foreign key. The contract column is `lrLoanReceivable.SalesContractId` (`int`, not
+  null). Every SPI object the views reach is owned by `dbo`: `lrLoanReceivable`, `lrLoanStatus`,
+  `lrFnGetBalanceSummary`, and the objects it references (`lrGetPrincipalRemaining`,
+  `GetFinanceCharge`, `lrTransaction`, `lrFrequency`), so ownership chaining holds.
+- **Inherited `public` grants (T007 f, decided 2026-10-23)**: in the restored
+  `AlphaPMS_ResortWise`, `public`/`guest` hold `EXECUTE` on 52 SPI procedures outside the approved
+  R4 list (object level; 0 schema- or database-level `EXECUTE` grants). `rw_api` keeps its
+  explicit `DENY SELECT, EXECUTE ON SCHEMA::dbo`. For `rw_parity_ref`, no per-object `DENY`s are
+  added on SPI objects; its inherited rights are accepted. Instead, a unit test scans the test
+  code and fails if it calls any SPI procedure or function outside the approved R4 list, so tests
+  never call a procedure that could write.
 
 ## R10. Audit logging
 

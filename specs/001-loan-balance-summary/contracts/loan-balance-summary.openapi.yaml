@@ -51,6 +51,7 @@ paths:
             type: integer
             format: int64
             minimum: 1
+            maximum: 2147483647
           example: 100245
       responses:
         '200':
@@ -179,6 +180,7 @@ components:
           type: integer
           format: int64
           minimum: 1
+          maximum: 2147483647
           description: The SPI loan record's numeric ID, as requested.
           example: 100245
         loanStatus:
