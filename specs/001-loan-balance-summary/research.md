@@ -57,7 +57,7 @@ table) is **not** used.
 | --- | --- |
 | Active loan list | Read-only `SELECT` of loan IDs with `LoanStatusId = 1` (test code only) |
 | `loanStatus` | `lrGetLoanDetails` (`@Loanid int`, `@SalesContractId int`) for the status ID; `lrGetLoanStatusTypes` (no parameters) for the name |
-| `principalBalance` (active loans) | `lrGetTransactionActivity` (`@Ownerid char`, `@SalesContractId int`; per contract, not per loan), second result set, `PrincipalRemaining`, compared after the same `decimal(19,2)` cast. The test reads each active loan's owner and contract IDs read-only at run time and never logs or saves them. This is the screen's SQL path; the shown value comes from the engine (O1) |
+| `principalBalance` (active loans) | **Not compared automatically (deviation, decided 2026-10-26).** The planned reference, `lrGetTransactionActivity` (`@Ownerid char(10)`, `@SalesContractId int`; second result set, `PrincipalRemaining`), reaches the database `AlphaSales` at run time, and the reference login is not given access to it. `lrGetPrincipalRemaining` was rejected as a substitute because `dbo.lrFnGetBalanceSummary`, which `rw.LoanPrincipalBalance` uses, calls it, so it would not be an independent reference. Principal parity rests on the 5-loan manual screen check (plan, Complexity Tracking) |
 | `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the view returns `0.00` for every non-active record; the screen check for an old rewritten record is manual (plan) |
 | `asOfDate` | `CAST(GETDATE() AS date)` on the reference connection, read before and after the request; the response must equal one of them (midnight-safe) |
 
@@ -65,7 +65,8 @@ table) is **not** used.
 API login (R9).
 
 **Approved SPI calls in test code**: only `lrGetLoanDetails`, `lrGetLoanStatusTypes`, and
-`lrGetTransactionActivity` (procedures), plus read-only `SELECT`s on SPI tables. A unit test scans
+`lrGetTransactionActivity` (procedures), plus read-only `SELECT`s on SPI tables.
+`lrGetTransactionActivity` stays approved but is not called while the principal deviation stands. A unit test scans
 the test code and fails if it calls any other SPI procedure or function (R9).
 
 **Comparison rules**: exact `decimal` equality at 2 decimal places; strings exact, ordinal. A

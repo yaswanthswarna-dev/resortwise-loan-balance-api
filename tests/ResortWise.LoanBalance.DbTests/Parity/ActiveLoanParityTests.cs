@@ -9,16 +9,18 @@ namespace ResortWise.LoanBalance.DbTests.Parity;
 /// <summary>
 /// Every active loan record in <c>AlphaPMS_ResortWise</c> matches the SPI parity references
 /// (SC-001, FR-021, research R4): status from <c>lrGetLoanDetails</c> and
-/// <c>lrGetLoanStatusTypes</c>, principal from the second result set of
-/// <c>lrGetTransactionActivity</c>, as-of date from the server clock. All reference calls are
-/// read-only and use the reference login. Owner and contract IDs are read at run time and never
-/// logged or saved; failures name the loan ID and field only, in git-ignored <c>TestResults/</c>.
+/// <c>lrGetLoanStatusTypes</c>, as-of date from the server clock. All reference calls are
+/// read-only and use the reference login. Contract IDs are read at run time and never logged or
+/// saved; failures name the loan ID and field only, in git-ignored <c>TestResults/</c>.
+/// Principal is not compared automatically: its reference procedure needs another database the
+/// reference login may not read, so principal parity is a documented deviation backed by the
+/// manual screen check (plan, Complexity Tracking).
 /// </summary>
 [Trait("Category", "Database")]
 [Collection(DatabaseCollection.Name)]
 public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
 {
-    private sealed record ActiveLoan(int LoanId, int SalesContractId, string OwnerId);
+    private sealed record ActiveLoan(int LoanId, int SalesContractId);
 
     [DatabaseFact]
     public async Task Every_active_loan_matches_the_spi_references()
@@ -58,12 +60,6 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
             {
                 failures.Add($"{loan.LoanId}: asOfDate");
             }
-
-            var expectedPrincipal = await PrincipalRemaining(reference, loan);
-            if (expectedPrincipal is null || body.GetProperty("principalBalance").GetDecimal() != expectedPrincipal.Value)
-            {
-                failures.Add($"{loan.LoanId}: principalBalance");
-            }
         }
 
         var failed = failures.Select(failure => failure.Split(':')[0]).Distinct().Count();
@@ -74,13 +70,13 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
     private static async Task<List<ActiveLoan>> ActiveLoans(SqlConnection reference)
     {
         await using var command = new SqlCommand(
-            "SELECT l.ID, l.SalesContractId, l.OwnerId FROM dbo.lrLoanReceivable AS l WHERE l.LoanStatusId = 1;",
+            "SELECT l.ID, l.SalesContractId FROM dbo.lrLoanReceivable AS l WHERE l.LoanStatusId = 1;",
             reference);
         await using var reader = await command.ExecuteReaderAsync();
         var loans = new List<ActiveLoan>();
         while (await reader.ReadAsync())
         {
-            loans.Add(new ActiveLoan(reader.GetInt32(0), reader.GetInt32(1), reader.GetString(2)));
+            loans.Add(new ActiveLoan(reader.GetInt32(0), reader.GetInt32(1)));
         }
 
         return loans;
@@ -113,27 +109,6 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
 
         var ordinal = reader.GetOrdinal("LoanStatusId");
         return reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
-    }
-
-    private static async Task<decimal?> PrincipalRemaining(SqlConnection reference, ActiveLoan loan)
-    {
-        await using var command = new SqlCommand("EXEC dbo.lrGetTransactionActivity @Ownerid = @Ownerid, @SalesContractId = @SalesContractId;", reference);
-        command.Parameters.Add("@Ownerid", SqlDbType.Char, 10).Value = loan.OwnerId;
-        command.Parameters.Add("@SalesContractId", SqlDbType.Int).Value = loan.SalesContractId;
-        await using var reader = await command.ExecuteReaderAsync();
-        if (!await reader.NextResultAsync() || !await reader.ReadAsync())
-        {
-            return null;
-        }
-
-        var ordinal = reader.GetOrdinal("PrincipalRemaining");
-        if (reader.IsDBNull(ordinal))
-        {
-            return null;
-        }
-
-        // Same rounding as the view's CAST(... AS decimal(19,2)): half away from zero (research R2).
-        return Math.Round(reader.GetDecimal(ordinal), 2, MidpointRounding.AwayFromZero);
     }
 
     private static async Task<string> ServerDate(SqlConnection reference)
