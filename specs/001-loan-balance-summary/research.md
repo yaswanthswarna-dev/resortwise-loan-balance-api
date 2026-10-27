@@ -66,17 +66,21 @@ table) is **not** used.
 | --- | --- |
 | Active loan list | Read-only `SELECT` of loan IDs with `LoanStatusId = 1` (test code only) |
 | `loanStatus` | `lrGetLoanDetails` (`@Loanid int`, `@SalesContractId int`) for the status ID; `lrGetLoanStatusTypes` (no parameters) for the name |
-| `principalBalance` (active loans) | **Not compared automatically (deviation, decided 2026-10-26).** The planned reference, `lrGetTransactionActivity` (`@Ownerid char(10)`, `@SalesContractId int`; second result set, `PrincipalRemaining`), reaches the database `AlphaSales` at run time, and the reference login is not given access to it. `lrGetPrincipalRemaining` was rejected as a substitute because `dbo.lrFnGetBalanceSummary`, which `rw.LoanPrincipalBalance` uses, calls it, so it would not be an independent reference. Principal parity rests on the 5-loan manual screen check (plan, Complexity Tracking) |
-| `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the API returns principal `null`, `principalBalanceAvailable` `false`, and reason `LOAN_NOT_ACTIVE` for every non-active record (O2). The screen check for old rewritten records was manual (T038, done 2026-10-26, details kept privately) |
+| `principalBalance` (active loans) | **`dbo.lrFnGetBalanceSummary(@Loanid, GETDATE())`, column `principalRemaining`** (`money`, scale 4), selected read-only on the reference login for every active loan (O4, revised by Farzin 2026-10-27). The test rounds it itself to 2 places, half away from zero (`Math.Round(value, 2, MidpointRounding.AwayFromZero)`), as the screen does (R2), and requires that the function returns exactly one row with a non-null value and that the API returns a non-null number equal to it. This catches rounding, field-mapping, and null errors in `rw.LoanPrincipalBalance` and the API across all active loans. It is **not independent** of the view, which calls the same function, and it does **not** prove the value the screen shows, which the Excel engine calculates; that rests on the manual screen check of about 20 active loans (plan, Complexity Tracking). The screen's procedure `lrGetTransactionActivity` (`@Ownerid char(10)`, `@SalesContractId int`; second result set, `PrincipalRemaining`) is not called, because it reaches the database `AlphaSales` at run time and the reference login is not given access to it. `lrGetPrincipalRemaining` is not called either |
+| `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the API returns principal `null`, `principalBalanceAvailable` `false`, and reason `LOAN_NOT_ACTIVE` for every non-active record (O2). The screen check for old rewritten records was manual (T038, done 2026-10-26, details kept privately). Paid-off and cancelled records get the same rule; the screen likely shows `0.00` for them, which is not verified here (those statuses are not in use in `AlphaPMS_ResortWise`), and the engine feature must cover them (Farzin, 2026-10-27) |
 | `asOfDate` | `CAST(GETDATE() AS date)` on the reference connection, read before and after the request; the response must equal one of them (midnight-safe) |
 
 **Connections**: every reference call above uses the test-only **reference login**, never the
 API login (R9).
 
 **Approved SPI calls in test code**: only `lrGetLoanDetails`, `lrGetLoanStatusTypes`, and
-`lrGetTransactionActivity` (procedures), plus read-only `SELECT`s on SPI tables.
-`lrGetTransactionActivity` stays approved but is not called while the principal deviation stands. A unit test scans
-the test code and fails if it calls any other SPI procedure or function (R9).
+`lrGetTransactionActivity` (procedures); `lrFnGetBalanceSummary` (function, read-only `SELECT`),
+only in the active-loan parity test (`ActiveLoanParityTests.cs`, through `RW_REF_A`) and in the
+API login's permission check (`ApiLoginPermissionTests.cs`, which proves `rw_api` cannot call it);
+plus read-only `SELECT`s on SPI tables. `lrFnGetBalanceSummary` was added on 2026-10-27 (O4
+revised). `lrGetTransactionActivity` stays approved but is not called, because it reaches
+`AlphaSales`. A unit test (T059) scans the test code and fails if it calls any other SPI
+procedure or function, or names `lrFnGetBalanceSummary` in any other file (R9).
 
 **Comparison rules**: exact `decimal` equality at 2 decimal places; strings exact, ordinal. A
 failure message names the loan ID and field. The results file goes to git-ignored `TestResults/`.
@@ -155,7 +159,11 @@ before release. The `rw.Loan` view exposes the column as `LoanId`.
     enforces Principle III in the database, not only by convention.
   - **Reference login** (`rw_parity_ref`), test-only: `db_datareader` and `db_denydatawriter`, plus
     `EXECUTE` on the read-only SPI procedures listed in R4 and nothing else. Parity and isolation
-    tests use it to read reference values. Because a procedure's own writes would bypass
+    tests use it to read reference values. `db_datareader` grants `SELECT` at database level,
+    which is expected to cover selecting from the table-valued function
+    `dbo.lrFnGetBalanceSummary` (R4, O4 revised); T066 confirms this locally before T067, and if
+    it does not, quickstart step 1 adds only `GRANT SELECT ON dbo.lrFnGetBalanceSummary TO
+    rw_parity_ref` (a test-only grant of the kind O3 allows). Because a procedure's own writes would bypass
     `db_denydatawriter` through ownership chaining, `EXECUTE` is granted only on procedures that
     the screen analysis shows are SELECT-only.
   - Applying `rw` scripts and running the tenant B setup script use an owner-level SQL login on
@@ -207,7 +215,7 @@ document replaces it.
 - **Database (local only)**: `[Trait("Category","Database")]`. Each test skips with a clear
   message unless `RW_DB_TESTS=1`. CI runs `dotnet test --filter "Category!=Database"`.
   - *Parity*: every active loan in `AlphaPMS_ResortWise`, field by field, against the R4
-    references; plus, for every non-active record, principal `null`, not available, reason
+    references, including principal against `dbo.lrFnGetBalanceSummary` (O4 revised); plus, for every non-active record, principal `null`, not available, reason
     `LOAN_NOT_ACTIVE` (O2).
   - *Isolation*: tenant A → `AlphaPMS_ResortWise`, tenant B → `AlphaPMS_ResortWise_B`. The fixture
     asserts `DB_NAME()` on each tenant connection before any test runs. API requests use the API
@@ -259,5 +267,6 @@ with a simple load script.
 D1–D11 are closed (see [plan.md](plan.md#decisions)). O1–O3 were decided on 2026-10-23 and are
 closed (see [plan.md](plan.md#open-points-for-farzin)); O1 is option (b), the SQL path as the
 principal reference. O2 was reopened and decided by Farzin on 2026-10-26 (option B: non-active
-principal `null`, reason `LOAN_NOT_ACTIVE`). R2, R8, and R9 contain schema confirmations
-that the first implementation task resolves locally.
+principal `null`, reason `LOAN_NOT_ACTIVE`). O4 was revised in Farzin's pull request review on
+2026-10-27: principal is compared automatically with `dbo.lrFnGetBalanceSummary` (R4). R2, R8,
+and R9 contain schema confirmations that the first implementation task resolves locally.

@@ -76,6 +76,20 @@
   non-active statuses get the same rule, because their screen value cannot be verified without
   the engine. See FR-008a and O2.
 
+### Farzin's pull request review (2026-10-27)
+
+- O1 and O2 are approved. O4 was not approved as written and is revised (see O4).
+- O4 revised: the automated parity test compares `principalBalance` for every active loan with a
+  read-only call to `dbo.lrFnGetBalanceSummary` through the test-only reference login, applying
+  the same rounding to 2 decimal places, field mapping, and null rule. This catches rounding,
+  mapping, and null errors across all active loans. It does not prove the value the screen
+  shows, because the SPI Excel loan engine calculates that value.
+- The manual screen check of active loans grows from 5 to about 20, including partly paid and
+  delinquent loans, picked by a rule, never by listing loans. Results are kept private.
+- O2 note: the null rule also covers paid-off and cancelled loan records, for which the screen
+  likely shows `0.00`. The API still returns `null` for them, and the engine feature must cover
+  them.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Get a loan's balance summary (Priority: P1)
@@ -345,10 +359,11 @@ the documented status, code, and field.
   in the `AlphaPMS_ResortWise` test database, including loans with conflicting values on the same
   screen, every returned field matches its FR-003 parity source for that loan, as read
   automatically by the parity test (FR-021). Zero mismatches are allowed. The automated test
-  checks loan status and as-of date. Principal balance is not compared automatically: its SQL
-  reference reaches another database that the test's reference login is not given access to, so
-  principal parity rests on the 5-loan manual screen check (O1 and O4, documented deviations from
-  Principle IV in the plan's Complexity Tracking).
+  checks loan status, as-of date, and principal balance. The principal reference is a read-only
+  call to the SPI function the `rw` view also uses, so it catches rounding, mapping, and null
+  errors but does not prove the value the screen shows, which the SPI Excel loan engine
+  calculates. That gap is covered by the manual screen check of about 20 active loans (O1 and
+  O4, documented deviations from Principle IV in the plan's Complexity Tracking).
 - **SC-002**: For every loan the test-setup script changes or removes in `AlphaPMS_ResortWise_B`,
   the tenant mapped to `AlphaPMS_ResortWise_B` returns a different result (different values, or
   `LOAN_NOT_FOUND`) than the tenant mapped to `AlphaPMS_ResortWise`.
@@ -369,8 +384,9 @@ the documented status, code, and field.
 
 Three points raised on 2026-10-23 in the plan were decided on 2026-10-23 and are closed. See
 [plan.md, Open points for Farzin](plan.md#open-points-for-farzin). A fourth point, O4, was
-raised during implementation and decided on 2026-10-26. O2 was reopened after the T038 screen
-check and decided again by Farzin on 2026-10-26.
+raised during implementation and decided on 2026-10-26, then revised after Farzin's pull request
+review on 2026-10-27. O2 was reopened after the T038 screen check and decided again by Farzin on
+2026-10-26; the review approved O1 and O2.
 
 - **O1. Principal parity reference**: *Status*: Closed, option (b). The Balance Summary tab
   shows the Excel engine's Principal Remaining, while the API reads the SQL function. The Excel
@@ -378,17 +394,24 @@ check and decided again by Farzin on 2026-10-26.
   the constitution allows tests to call only SPI procedures and functions. The parity test uses
   the SPI SQL function path as the principal reference (FR-021 unchanged). This is a documented
   deviation from Principle IV in the plan's Complexity Tracking, backed by the 5-loan manual
-  screen check on 2026-10-22, with Farzin's pull request approval as the sign-off. O4 later
-  removed the automated principal comparison.
-- **O4. Automated principal comparison**: *Status*: Closed, decided 2026-10-26. The SQL path
-  reference from O1 (`lrGetTransactionActivity`) reaches the database `AlphaSales` at run time,
-  and the test-only reference login is not given any access to it. `lrGetPrincipalRemaining` was
-  rejected as a substitute, because the function the `rw` view uses calls it, so it is not an
-  independent reference. The automated parity test therefore checks loan status and as-of date
-  only, and the non-active rule (FR-008a) is still tested for every non-active record. Principal
-  parity rests on the 5-loan manual screen check. This is a second documented deviation from
-  Principle IV in the plan's Complexity Tracking, with Farzin's pull request approval as the
-  sign-off.
+  screen check on 2026-10-22, with Farzin's pull request approval as the sign-off. Approved in
+  Farzin's pull request review on 2026-10-27. O4 sets the principal reference the test calls.
+- **O4. Automated principal comparison**: *Status*: Closed, revised by Farzin on 2026-10-27
+  (pull request review). The first decision (2026-10-26), to drop the automated principal
+  comparison, was not approved. The SQL path reference from O1 (`lrGetTransactionActivity`)
+  still is not called, because it reaches the database `AlphaSales` at run time, and the
+  test-only reference login is not given any access to it. Instead, the parity test compares
+  `principalBalance` for every active loan, automatically, with a read-only call to
+  `dbo.lrFnGetBalanceSummary` through the reference login (`rw_parity_ref`). The test rounds the
+  function's principal to 2 decimal places, half away from zero, as the screen does, and checks
+  the field mapping and that neither value is `null`. This catches rounding, mapping, and null
+  errors in the `rw` view and the API across all active loans. It does **not** prove the value
+  the screen shows: the view uses the same function, and the screen shows the SPI Excel loan
+  engine's value. That gap is covered by the manual screen check of about 20 active loans,
+  including partly paid and delinquent ones, picked by rule, with the results kept private. This
+  remains a documented deviation from Principle IV in the plan's Complexity Tracking, with
+  Farzin's pull request approval as the sign-off. The non-active rule (FR-008a) is still tested
+  for every non-active record.
 - **O2. Non-active principal**: *Status*: Reopened, then decided by Farzin on 2026-10-26
   (option B). The earlier decision (2026-10-23) that a non-active loan record returns principal
   `0.00` was wrong. The manual screen check (T038) found that the Balance Summary tab shows each
@@ -397,7 +420,11 @@ check and decided again by Farzin on 2026-10-26.
   `null`, `principalBalanceAvailable` `false`, and `principalUnavailableReason`
   `LOAN_NOT_ACTIVE` (FR-008a), until the engine feature covers it. "Rewritten" is the only
   non-active status in use; other non-active statuses get the same rule, because their screen
-  value cannot be verified without the engine. Check details are kept privately.
+  value cannot be verified without the engine. Check details are kept privately. Approved in
+  Farzin's pull request review on 2026-10-27, with a note: the rule also covers paid-off and
+  cancelled loan records, where the screen likely shows `0.00`. The API returns `null` with
+  reason `LOAN_NOT_ACTIVE` for them too, and the engine feature must cover them (see
+  [Out of Scope](#out-of-scope)).
 - **O3. Test-only database users and grants**: *Status*: Closed, allowed. The test setup may
   create the test database users and grant the test-only reference login `EXECUTE` on the
   read-only SPI procedures in `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. They add
@@ -444,7 +471,10 @@ The questions below were answered by Farzin on 2026-10-22 and are closed. See
   loan engine calculates these values; they will be a separate feature later.
 - **Principal balance of non-active loan records**: the screen value comes from the SPI Excel
   loan engine; until the engine feature covers it, the API returns `null` with reason
-  `LOAN_NOT_ACTIVE` (FR-008a).
+  `LOAN_NOT_ACTIVE` (FR-008a). The engine feature must cover every non-active status: old
+  rewritten records (the screen shows the record's own principal) and paid-off and cancelled
+  records (the screen likely shows `0.00`; not verified, because these statuses are not in use in
+  `AlphaPMS_ResortWise`).
 - **Payoff amount**: a separate feature.
 - **Balances as of a past or future date**: the request takes no date input.
 
