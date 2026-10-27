@@ -37,7 +37,8 @@
 - No [NEEDS CLARIFICATION] markers are used. The clarify topics (as-of date, active loan, audit,
   load target) were answered in the spec's Clarifications, and O1–O3 were decided on 2026-10-23.
 - Reduced scope (2026-10-23, updated 2026-10-26): the response has `loanId`, `loanStatus`,
-  `asOfDate`, `principalBalance` (`null` for non-active records), `principalBalanceAvailable`,
-  and, only when not available, `principalUnavailableReason` (O2, option B). Payoff amount, interest, fees, unapplied
+  `asOfDate`, `principalBalance` (`null` when not available), `principalBalanceAvailable`,
+  and, only when not available, `principalUnavailableReason` (`LOAN_NOT_ACTIVE`, O2 option B;
+  `PAID_OFF_FLAG_SET` or `CROSS_LOAN_REVERSAL` for active records, O5). Payoff amount, interest, fees, unapplied
   amount, Others 1 to 5 and their names, total balance, and past due are out of scope (spec Out
   of Scope), and FR-004 and FR-005 are withdrawn. No checklist item depends on them.

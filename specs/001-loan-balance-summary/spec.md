@@ -97,8 +97,10 @@
   function cannot see. The function works per contract; it ignores the payoff flag and does not
   check which loan record a reversal belongs to. The patterns are: (1) the loan
   record's payoff flag (`lrLoanReceivable.IsPayOff`) is set although the posted payments do not
-  pay off the principal; (2) after a rewrite, a payment reversal posted on one loan record of the
-  contract reverses a payment posted on a different loan record of the same contract. Read-only
+  pay off the principal; (2) after a rewrite, a reversal posted on one loan record of the
+  contract reverses a transaction of any type posted on a different loan record of the same
+  contract (in the loans checked, a regular payment; any type counts, because flagging more loans
+  as not available never returns a wrong value). Read-only
   counts found further active loans matching each pattern in `AlphaPMS_ResortWise`. Loan IDs,
   values, and counts are kept privately.
 - Option B: for an **active** loan record that matches either pattern, `principalBalance` is
@@ -144,7 +146,8 @@ for the same loan, read automatically from SPI as described in FR-021.
    `null`, `principalBalanceAvailable` `false`, and `principalUnavailableReason`
    `PAID_OFF_FLAG_SET` (FR-008a, O5).
 6. **Given** an active loan record whose payoff flag is not set, on a contract where a reversal
-   on one loan record reverses a payment on a different loan record, **When** the caller requests
+   on one loan record reverses a transaction of any type on a different loan record, **When** the
+   caller requests
    its balance summary, **Then** the response is HTTP 200 with status `Active`,
    `principalBalance` `null`, `principalBalanceAvailable` `false`, and
    `principalUnavailableReason` `CROSS_LOAN_REVERSAL` (FR-008a, O5).
@@ -250,8 +253,9 @@ the documented status, code, and field.
 - **Active loan with its payoff flag set** (`IsPayOff = 1`): principal balance `null`, not
   available, reason `PAID_OFF_FLAG_SET`, whatever its transactions say (FR-008a; decided in O5).
 - **Active loan on a contract with a cross-loan reversal** (a reversal on one loan record of the
-  contract reverses a payment on a different loan record of the same contract): principal
-  balance `null`, not available, reason `CROSS_LOAN_REVERSAL` (FR-008a; decided in O5). The rule
+  contract reverses a transaction of any type on a different loan record of the same contract):
+  principal balance `null`, not available, reason `CROSS_LOAN_REVERSAL` (FR-008a; decided in O5).
+  The rule
   applies to every active record on such a contract, not only the one holding the reversal.
 - **Several reasons at once**: one reason is returned, in the order of FR-008a: `LOAN_NOT_ACTIVE`,
   then `PAID_OFF_FLAG_SET`, then `CROSS_LOAN_REVERSAL`. A non-active record matching an O5 rule
@@ -332,7 +336,8 @@ the documented status, code, and field.
     is `PAID_OFF_FLAG_SET`. The SQL function ignores the flag, so its value can differ from the
     screen (decided in O5, 2026-10-27).
   - **Active, cross-loan reversal on the contract** (a reversal transaction on any loan record of
-    the record's contract reverses a payment on a different loan record of the same contract):
+    the record's contract reverses a transaction of any type on a different loan record of the
+    same contract):
     principal balance is `null`, principal balance available is `false`, and principal
     unavailable reason is `CROSS_LOAN_REVERSAL`. The SQL function works per contract, so such a
     reversal can make its value differ from the screen
@@ -488,7 +493,8 @@ screen check and decided by Farzin on 2026-10-27.
   principal `0.00` while `dbo.lrFnGetBalanceSummary` returns a balance, and a read-only
   investigation traced them to two SPI data patterns the SQL function cannot see: the payoff
   flag is set on the loan record, or the contract has a reversal on one loan record that
-  reverses a payment on a different loan record. For an active loan record matching either
+  reverses a transaction of any type on a different loan record. For an active loan record
+  matching either
   pattern, the API returns principal `null`, `principalBalanceAvailable` `false`, and reason
   `PAID_OFF_FLAG_SET` or `CROSS_LOAN_REVERSAL` (FR-008a). Non-active records keep
   `LOAN_NOT_ACTIVE`. The `rw` view change is a new script, `V004`; it only detects the patterns

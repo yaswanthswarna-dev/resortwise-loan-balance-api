@@ -45,8 +45,8 @@ paths:
         2. Status `Active` and the loan record's payoff flag is set in SPI: `principalBalance` is
            `null`, `principalBalanceAvailable` is `false`, and `principalUnavailableReason` is
            `PAID_OFF_FLAG_SET`.
-        3. Status `Active` and the loan's contract has a payment reversal on one loan record that
-           reverses a payment on a different loan record of the same contract:
+        3. Status `Active` and the loan's contract has a reversal on one loan record that
+           reverses a transaction of any type on a different loan record of the same contract:
            `principalBalance` is `null`, `principalBalanceAvailable` is `false`, and
            `principalUnavailableReason` is `CROSS_LOAN_REVERSAL`.
         4. Otherwise (status `Active`): `principalBalance` is a number (zero is `0.00`),
@@ -288,9 +288,9 @@ components:
 
             - `LOAN_NOT_ACTIVE`: the loan record's status is not `Active`.
             - `PAID_OFF_FLAG_SET`: the record is `Active`, but its payoff flag is set in SPI.
-            - `CROSS_LOAN_REVERSAL`: the record is `Active`, but its contract has a payment
-              reversal on one loan record that reverses a payment on a different loan record of
-              the same contract.
+            - `CROSS_LOAN_REVERSAL`: the record is `Active`, but its contract has a reversal on
+              one loan record that reverses a transaction of any type on a different loan record
+              of the same contract.
           enum:
             - LOAN_NOT_ACTIVE
             - PAID_OFF_FLAG_SET

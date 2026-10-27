@@ -50,7 +50,7 @@ the O2 null rule also covers paid-off and cancelled records, which the engine fe
 cover. These are T066–T072 (Phase 8). **O5, decided by Farzin 2026-10-27 (option B)**: an
 **active** record whose payoff flag is set returns principal `null`, `principalBalanceAvailable`
 `false`, and reason `PAID_OFF_FLAG_SET`; an active record whose contract has a reversal on one
-loan record that reverses a payment on a different loan record returns the same with reason
+loan record that reverses a transaction of any type on a different loan record returns the same with reason
 `CROSS_LOAN_REVERSAL`; non-active records keep `LOAN_NOT_ACTIVE` (first match wins, in that
 order). The view change is `V004`, which only detects these cases from SPI tables and never
 calculates amounts. A documented Principle IV deviation, signed off by Farzin's PR approval.
@@ -391,6 +391,6 @@ Task: "T035 Response model in src/ResortWise.LoanBalance.Api/Loans/Models/LoanBa
 
 ## Phase 10: Convergence
 
-- [ ] T084 Change the cross-loan reversal wording from "reverses a payment" to "reverses a transaction of any type" in `specs/001-loan-balance-summary/spec.md` (Farzin's O5 decision, US1 scenario 6, Edge Cases, FR-008a, O5), `specs/001-loan-balance-summary/contracts/loan-balance-summary.openapi.yaml` (operation description and `principalUnavailableReason`), and the O5 note at the top of `specs/001-loan-balance-summary/tasks.md`, to match `V004`, `O5Rules.cs`, and the plan's A1 decision per FR-008a (contradicts)
-- [ ] T085 State in `specs/001-loan-balance-summary/data-model.md` (`CrossLoanReversal`) that the reversal check counts transactions whether posted or not, as `V004` does and research R2 records, per plan: per-loan-record rule 3 (partial)
-- [ ] T086 Add the O5 reason codes `PAID_OFF_FLAG_SET` and `CROSS_LOAN_REVERSAL` to the `principalUnavailableReason` item in `specs/001-loan-balance-summary/checklists/requirements.md` per FR-002 and FR-008a (partial)
+- [X] T084 Change the cross-loan reversal wording from "reverses a payment" to "reverses a transaction of any type" in `specs/001-loan-balance-summary/spec.md` (Farzin's O5 decision, US1 scenario 6, Edge Cases, FR-008a, O5), `specs/001-loan-balance-summary/contracts/loan-balance-summary.openapi.yaml` (operation description and `principalUnavailableReason`), and the O5 note at the top of `specs/001-loan-balance-summary/tasks.md`, to match `V004`, `O5Rules.cs`, and the plan's A1 decision per FR-008a (contradicts). **Note (2026-10-27)**: done (wording only)
+- [X] T085 State in `specs/001-loan-balance-summary/data-model.md` (`CrossLoanReversal`) that the reversal check counts transactions whether posted or not, as `V004` does and research R2 records, per plan: per-loan-record rule 3 (partial). **Note (2026-10-27)**: done (wording only)
+- [X] T086 Add the O5 reason codes `PAID_OFF_FLAG_SET` and `CROSS_LOAN_REVERSAL` to the `principalUnavailableReason` item in `specs/001-loan-balance-summary/checklists/requirements.md` per FR-002 and FR-008a (partial). **Note (2026-10-27)**: done (wording only)
