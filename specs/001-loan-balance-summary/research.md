@@ -56,7 +56,11 @@ calculates are out of scope (spec Out of Scope).
   returns `NULL` principal when either is set (data-model.md). The flags use only IDs, the
   contract ID, the transaction type, `REVApplyID`, and `IsPayOff`; no amount column is read.
   The reversal check does not filter on `Posted`, matching the counts; in the loans checked,
-  every transaction is posted. *Alternatives considered*: returning the function's value
+  every transaction is posted. **Reversal target (decided 2026-10-27, analyze A1)**: the check
+  matches a reversal of **any** transaction on a different loan record of the same contract, not
+  only a regular payment (`TransTypeid = 4`). Flagging more loans as not available is never wrong:
+  it can only withhold a value, never return a wrong one. In the loans checked, the reversed
+  transaction was a regular payment. *Alternatives considered*: returning the function's value
   (contradicts the screen); calculating a corrected value from SPI tables (copies engine logic,
   which the constitution exists to avoid).
 - **Rationale**: Reuses SPI's own logic instead of rebuilding it, so the value follows future SPI

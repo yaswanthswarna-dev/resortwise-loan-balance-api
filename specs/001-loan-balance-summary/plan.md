@@ -109,8 +109,10 @@ be the new loan's principal, which FR-008a forbids.
    detection flags; the API picks the reason, first match wins:
    - `PayOffFlagSet`: `lrLoanReceivable.IsPayOff = 1` on `L` → `PAID_OFF_FLAG_SET`.
    - `CrossLoanReversal`: a reversal transaction (`TransTypeid = 1`, REV) on any loan record of
-     `L`'s contract whose `REVApplyID` points to a payment on a different loan record of the same
-     contract → `CROSS_LOAN_REVERSAL`.
+     `L`'s contract whose `REVApplyID` points to a transaction of any type on a different loan
+     record of the same contract → `CROSS_LOAN_REVERSAL`. Decided 2026-10-27 (analyze A1): any
+     transaction, not only a regular payment, because flagging more loans as not available is
+     never wrong; it can only withhold a value, never return a wrong one (research R2).
 
    The function works per contract and ignores the payoff flag, and it cannot tell that a
    rewrite already took a later-reversed payment out of the new record's amount. The T069 screen
