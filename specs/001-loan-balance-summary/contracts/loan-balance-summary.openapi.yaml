@@ -35,20 +35,30 @@ paths:
         amount and the other balance fields (interest, fees, unapplied, Others 1 to 5, total
         balance, past due) are not part of this response; they will be a separate feature.
 
-        Principal availability depends only on the loan record's status:
+        Principal availability is decided by the first rule that applies, in this order:
 
-        - Status exactly `Active`: `principalBalance` is a number (zero is `0.00`),
-          `principalBalanceAvailable` is `true`, and `principalUnavailableReason` is absent.
-        - Any other status (for example an old loan record left behind by a rewrite):
-          `principalBalance` is `null` (never `0.00`), `principalBalanceAvailable` is `false`, and
-          `principalUnavailableReason` is `LOAN_NOT_ACTIVE`. The SPI Application shows such a
-          record's own principal, which only the SPI loan engine calculates; this API does not
-          return it yet.
+        1. Any status other than exactly `Active` (for example an old loan record left behind by
+           a rewrite): `principalBalance` is `null` (never `0.00`), `principalBalanceAvailable`
+           is `false`, and `principalUnavailableReason` is `LOAN_NOT_ACTIVE`. The SPI
+           Application shows such a record's own principal, which only the SPI loan engine
+           calculates; this API does not return it yet.
+        2. Status `Active` and the loan record's payoff flag is set in SPI: `principalBalance` is
+           `null`, `principalBalanceAvailable` is `false`, and `principalUnavailableReason` is
+           `PAID_OFF_FLAG_SET`.
+        3. Status `Active` and the loan's contract has a payment reversal on one loan record that
+           reverses a payment on a different loan record of the same contract:
+           `principalBalance` is `null`, `principalBalanceAvailable` is `false`, and
+           `principalUnavailableReason` is `CROSS_LOAN_REVERSAL`.
+        4. Otherwise (status `Active`): `principalBalance` is a number (zero is `0.00`),
+           `principalBalanceAvailable` is `true`, and `principalUnavailableReason` is absent.
 
-        `principalBalance` is `null` in no other case. If an active record's principal cannot
-        be read, the response is `500 INTERNAL_ERROR`. Clients must decide by
-        `principalBalanceAvailable`, not by `loanStatus`: a later release may make the principal
-        available for non-active records.
+        In cases 2 and 3 the SPI Application shows a principal that this API cannot reproduce
+        from SPI data, so it reports the principal as not available instead of returning a
+        different value. `principalBalance` is `null` in no other case. If the principal of an
+        active record in case 4 cannot be read, the response is `500 INTERNAL_ERROR`. Clients
+        must decide by `principalBalanceAvailable`, not by `loanStatus`: an active loan may have
+        no principal available, and a later release may make the principal available in cases
+        1 to 3.
 
         Check order: credential (401), tenant header (400), tenant authorization (403), loan ID
         validation (400), loan lookup (404).
@@ -93,6 +103,24 @@ paths:
                     principalBalance: null
                     principalBalanceAvailable: false
                     principalUnavailableReason: LOAN_NOT_ACTIVE
+                paidOffFlagSet:
+                  summary: Active loan record with the payoff flag set (principal not available)
+                  value:
+                    loanId: 100246
+                    loanStatus: Active
+                    asOfDate: '2026-10-22'
+                    principalBalance: null
+                    principalBalanceAvailable: false
+                    principalUnavailableReason: PAID_OFF_FLAG_SET
+                crossLoanReversal:
+                  summary: Active loan record on a contract with a cross-loan reversal (principal not available)
+                  value:
+                    loanId: 100247
+                    loanStatus: Active
+                    asOfDate: '2026-10-22'
+                    principalBalance: null
+                    principalBalanceAvailable: false
+                    principalUnavailableReason: CROSS_LOAN_REVERSAL
         '400':
           description: |
             `TENANT_REQUIRED` when `X-Tenant-Id` is missing, empty, or whitespace only
@@ -246,7 +274,8 @@ components:
           type: boolean
           description: |
             `true` when `principalBalance` holds the loan record's principal (status exactly
-            `Active`); `false` when it is `null` (any other status).
+            `Active` and neither SPI data check applies); `false` when it is `null` (see
+            `principalUnavailableReason`).
         principalUnavailableReason:
           type: string
           description: |
@@ -254,10 +283,18 @@ components:
             `false`; absent otherwise. A stable code: clients map it by value, and it is never
             renamed or repurposed within `/v1`. New reasons may be added within `/v1`, so clients
             must treat a reason they do not recognize as "principal not available" and rely on
-            `principalBalanceAvailable`. `LOAN_NOT_ACTIVE`: the loan record's status is not
-            `Active`.
+            `principalBalanceAvailable`. Exactly one reason is given, the first that applies in
+            this order:
+
+            - `LOAN_NOT_ACTIVE`: the loan record's status is not `Active`.
+            - `PAID_OFF_FLAG_SET`: the record is `Active`, but its payoff flag is set in SPI.
+            - `CROSS_LOAN_REVERSAL`: the record is `Active`, but its contract has a payment
+              reversal on one loan record that reverses a payment on a different loan record of
+              the same contract.
           enum:
             - LOAN_NOT_ACTIVE
+            - PAID_OFF_FLAG_SET
+            - CROSS_LOAN_REVERSAL
       example:
         loanId: 100245
         loanStatus: Active

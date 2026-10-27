@@ -44,21 +44,28 @@ See [contracts/loan-balance-summary.openapi.yaml](contracts/loan-balance-summary
 | `loanStatus` | string | `rw.Loan.LoanStatusName` |
 | `asOfDate` | date | `rw.LoanPrincipalBalance.AsOfDate` (SQL Server's current date) |
 | `principalBalance` | decimal(2), nullable | `rw.LoanPrincipalBalance.PrincipalBalance` |
-| `principalBalanceAvailable` | boolean | `rw.Loan.LoanStatusId = 1` |
-| `principalUnavailableReason` | string (`LOAN_NOT_ACTIVE`), optional | Set by the API when `principalBalanceAvailable` is `false` |
+| `principalBalanceAvailable` | boolean | `rw.Loan.LoanStatusId = 1` and both `rw.LoanPrincipalBalance.PayOffFlagSet` and `rw.LoanPrincipalBalance.CrossLoanReversal` are `0` |
+| `principalUnavailableReason` | string (`LOAN_NOT_ACTIVE`, `PAID_OFF_FLAG_SET`, `CROSS_LOAN_REVERSAL`), optional | Set by the API when `principalBalanceAvailable` is `false`, by the rules below |
 
-Rules (FR-006, FR-008a; plan, per-loan-record rule):
+Rules (FR-006, FR-008a; plan, per-loan-record rule). The first rule that applies wins:
 
 - `loanId`, `loanStatus`, `asOfDate`, `principalBalance`, and `principalBalanceAvailable` are
   always present. `principalUnavailableReason` is present only when `principalBalanceAvailable`
   is `false`.
-- **Active** (`LoanStatusId = 1`): `principalBalance` is the view's value (a zero principal is
-  `0.00`), `principalBalanceAvailable` is `true`, and there is no reason. A `NULL` principal for
-  an active record is an internal error (500 `INTERNAL_ERROR`), never returned as `null`.
-- **Not active** (any other status, including an old record left behind by a rewrite):
-  `principalBalance` is `null` (never `0.00`), `principalBalanceAvailable` is `false`, and
-  `principalUnavailableReason` is `LOAN_NOT_ACTIVE`. A non-`NULL` principal for a non-active
-  record is an internal error (500), so the view and the API cannot disagree silently.
+1. **Not active** (any status other than `LoanStatusId = 1`, including an old record left behind
+   by a rewrite): `principalBalance` is `null` (never `0.00`), `principalBalanceAvailable` is
+   `false`, and `principalUnavailableReason` is `LOAN_NOT_ACTIVE`, whatever the two flags say.
+2. **Active, `PayOffFlagSet = 1`**: `principalBalance` is `null`, `principalBalanceAvailable` is
+   `false`, and `principalUnavailableReason` is `PAID_OFF_FLAG_SET` (O5).
+3. **Active, `CrossLoanReversal = 1`**: `principalBalance` is `null`,
+   `principalBalanceAvailable` is `false`, and `principalUnavailableReason` is
+   `CROSS_LOAN_REVERSAL` (O5).
+4. **Active, both flags `0`**: `principalBalance` is the view's value (a zero principal is
+   `0.00`), `principalBalanceAvailable` is `true`, and there is no reason.
+
+Guards: a `NULL` principal in case 4 is an internal error (500 `INTERNAL_ERROR`), never returned
+as `null`. A non-`NULL` principal in cases 1 to 3 is also an internal error (500), so the view
+and the API cannot disagree silently.
 
 ### Error
 
@@ -72,7 +79,7 @@ an SPI procedure or anything that writes data.
 
 ### `rw.Loan`
 
-One row per loan record. Read from SPI tables only.
+One row per loan record. Read from SPI tables only. Unchanged by `V004`.
 
 | Column | From |
 | --- | --- |
@@ -83,18 +90,22 @@ One row per loan record. Read from SPI tables only.
 
 ### `rw.LoanPrincipalBalance`
 
-One row per loan record. Created by `V002`; redefined by `V003` (O2, decided 2026-10-26), because
-`V002` is already applied and a versioned script is never edited after it is applied. The table
-shows the `V003` definition.
+One row per loan record. Created by `V002`; redefined by `V003` (O2, decided 2026-10-26) and by
+`V004` (O5, decided 2026-10-27), because a versioned script is never edited after it is applied.
+The table shows the `V004` definition.
 
 | Column | Value |
 | --- | --- |
 | `LoanId` | `lrLoanReceivable.ID` |
 | `AsOfDate` | `CAST(GETDATE() AS date)`, the same clock the function call uses |
-| `PrincipalBalance` | `LoanStatusId = 1`: `principalRemaining` (`money`, scale 4) from the table-valued function `dbo.lrFnGetBalanceSummary(ID, GETDATE())` through `OUTER APPLY` (so a record never drops out of the view; approved 2026-10-26), rounded to 2 places by `CAST(... AS decimal(19,2))` (half away from zero, as the screen does; research R2), confirmed by the parity test. Any other status: `NULL` (spec FR-008a; decided in O2, 2026-10-26; `V002` returned `0.00`), and the function is not called |
+| `PayOffFlagSet` | `bit`, not null: `1` when `lrLoanReceivable.IsPayOff = 1` on this record, else `0` (a `NULL` flag counts as `0`). Set for every status (O5) |
+| `CrossLoanReversal` | `bit`, not null: `1` when a transaction on any loan record of this record's contract (`lrLoanReceivable.SalesContractId`) has `TransTypeid = 1` (REV, Payment Reversal) and its `REVApplyID` points to a transaction whose `LoanId` is a different loan record of the same contract; else `0`. Uses only `lrTransaction.ID`, `LoanId`, `TransTypeid`, and `REVApplyID`, and `lrLoanReceivable.ID` and `SalesContractId`. Set for every status (O5) |
+| `PrincipalBalance` | `LoanStatusId = 1` and both flags `0`: `principalRemaining` (`money`, scale 4) from the table-valued function `dbo.lrFnGetBalanceSummary(ID, GETDATE())` through `OUTER APPLY` (so a record never drops out of the view; approved 2026-10-26), rounded to 2 places by `CAST(... AS decimal(19,2))` (half away from zero, as the screen does; research R2), confirmed by the parity test. Any other status, or either flag `1`: `NULL` (spec FR-008a; O2 and O5), and the function is not called |
 
 The function returns a per-contract value; the status rule is what keeps the result per loan
-record (plan, per-loan-record rule).
+record (plan, per-loan-record rule). The two flags are detection only: `V004` reads no amount
+column, uses no aggregate, and calculates no amount (O5). The reason codes are API constants;
+the view exposes only the flags.
 
 ### `rw.SchemaVersions` (table)
 
