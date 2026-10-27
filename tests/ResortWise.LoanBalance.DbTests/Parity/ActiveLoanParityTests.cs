@@ -1,6 +1,7 @@
 using System.Data;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 using ResortWise.LoanBalance.DbTests.Infrastructure;
 
@@ -10,18 +11,23 @@ namespace ResortWise.LoanBalance.DbTests.Parity;
 /// Every active loan record in <c>AlphaPMS_ResortWise</c> matches the SPI parity references
 /// (SC-001, FR-021, research R4): status from <c>lrGetLoanDetails</c> and
 /// <c>lrGetLoanStatusTypes</c>, as-of date from the server clock; and the principal is available
-/// (a number, <c>principalBalanceAvailable</c> true, no <c>principalUnavailableReason</c>; O2). All reference calls are
-/// read-only and use the reference login. Contract IDs are read at run time and never logged or
-/// saved; failures name the loan ID and field only, in git-ignored <c>TestResults/</c>.
-/// Principal is not compared automatically: its reference procedure needs another database the
-/// reference login may not read, so principal parity is a documented deviation backed by the
-/// manual screen check (plan, Complexity Tracking).
+/// (a number, <c>principalBalanceAvailable</c> true, no <c>principalUnavailableReason</c>; O2) and
+/// equals <c>dbo.lrFnGetBalanceSummary</c>'s <c>principalRemaining</c>, rounded here to 2 places
+/// half away from zero (O4 revised). All reference calls are read-only and use the reference
+/// login. Contract IDs are read at run time and never logged or saved; failures name the loan ID
+/// and field only, in git-ignored <c>TestResults/</c>.
+/// The principal reference is the same SPI function the <c>rw</c> view uses, so this catches
+/// rounding, mapping, and null errors across all active loans but does not prove the value the
+/// screen shows, which the Excel engine calculates; that rests on the manual screen check (plan,
+/// Complexity Tracking).
 /// </summary>
 [Trait("Category", "Database")]
 [Collection(DatabaseCollection.Name)]
 public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
 {
     private sealed record ActiveLoan(int LoanId, int SalesContractId);
+
+    private static readonly Regex TwoPlaces = new(@"^-?[0-9]+\.[0-9]{2}$");
 
     [DatabaseFact]
     public async Task Every_active_loan_matches_the_spi_references()
@@ -35,55 +41,85 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
         var failures = new List<string>();
         foreach (var loan in loans)
         {
-            var before = await ServerDate(reference);
-            using var response = await client.GetAsync($"/v1/loans/{loan.LoanId}/balance-summary");
-            var after = await ServerDate(reference);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                failures.Add($"{loan.LoanId}: status code");
-                continue;
-            }
-
-            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            var body = json.RootElement;
-
-            var statusId = await LoanStatusId(reference, loan);
-            if (statusId is null
-                || !statusNames.TryGetValue(statusId.Value, out var expectedStatus)
-                || !string.Equals(body.GetProperty("loanStatus").GetString(), expectedStatus, StringComparison.Ordinal))
-            {
-                failures.Add($"{loan.LoanId}: loanStatus");
-            }
-
-            var asOf = body.GetProperty("asOfDate").GetString();
-            if (asOf != before && asOf != after)
-            {
-                failures.Add($"{loan.LoanId}: asOfDate");
-            }
-
-            // Active, so the principal is available: a number, never null, and no reason (FR-008a, O2).
-            if (!body.TryGetProperty("principalBalanceAvailable", out var available)
-                || available.ValueKind != JsonValueKind.True)
-            {
-                failures.Add($"{loan.LoanId}: principalBalanceAvailable");
-            }
-
-            if (body.TryGetProperty("principalUnavailableReason", out _))
-            {
-                failures.Add($"{loan.LoanId}: principalUnavailableReason");
-            }
-
-            if (!body.TryGetProperty("principalBalance", out var principal)
-                || principal.ValueKind != JsonValueKind.Number)
-            {
-                failures.Add($"{loan.LoanId}: principalBalance");
-            }
+            // Null means the server date changed during the check (midnight), so the principal
+            // reference may be for another day: check the loan once more.
+            var loanFailures = await CheckLoan(client, reference, statusNames, loan)
+                ?? await CheckLoan(client, reference, statusNames, loan)
+                ?? [$"{loan.LoanId}: asOfDate"];
+            failures.AddRange(loanFailures);
         }
 
         var failed = failures.Select(failure => failure.Split(':')[0]).Distinct().Count();
+        var principalFailed = failures.Where(failure => failure.EndsWith(": principalBalance", StringComparison.Ordinal)).Count();
         RunSummary.Record(nameof(ActiveLoanParityTests), DatabaseFixture.DatabaseA, loans.Count, loans.Count - failed, failed);
+        RunSummary.Record($"{nameof(ActiveLoanParityTests)} (principal)", DatabaseFixture.DatabaseA, loans.Count, loans.Count - principalFailed, principalFailed);
         Assert.True(failures.Count == 0, $"{failed} loans failed; details in {RunSummary.WriteFailures(nameof(ActiveLoanParityTests), failures)}");
+    }
+
+    /// <summary>
+    /// Checks one loan and returns its failures, or null when the server date read before the
+    /// request differs from the one read after the principal reference.
+    /// </summary>
+    private static async Task<List<string>?> CheckLoan(
+        HttpClient client, SqlConnection reference, Dictionary<int, string> statusNames, ActiveLoan loan)
+    {
+        var before = await ServerDate(reference);
+        using var response = await client.GetAsync($"/v1/loans/{loan.LoanId}/balance-summary");
+        var expectedPrincipal = await ReferencePrincipal(reference, loan.LoanId);
+        var after = await ServerDate(reference);
+        if (before != after)
+        {
+            return null;
+        }
+
+        var failures = new List<string>();
+        if (!response.IsSuccessStatusCode)
+        {
+            failures.Add($"{loan.LoanId}: status code");
+            return failures;
+        }
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var body = json.RootElement;
+
+        var statusId = await LoanStatusId(reference, loan);
+        if (statusId is null
+            || !statusNames.TryGetValue(statusId.Value, out var expectedStatus)
+            || !string.Equals(body.GetProperty("loanStatus").GetString(), expectedStatus, StringComparison.Ordinal))
+        {
+            failures.Add($"{loan.LoanId}: loanStatus");
+        }
+
+        if (body.GetProperty("asOfDate").GetString() != before)
+        {
+            failures.Add($"{loan.LoanId}: asOfDate");
+        }
+
+        // Active, so the principal is available: a number, never null, and no reason (FR-008a, O2).
+        if (!body.TryGetProperty("principalBalanceAvailable", out var available)
+            || available.ValueKind != JsonValueKind.True)
+        {
+            failures.Add($"{loan.LoanId}: principalBalanceAvailable");
+        }
+
+        if (body.TryGetProperty("principalUnavailableReason", out _))
+        {
+            failures.Add($"{loan.LoanId}: principalUnavailableReason");
+        }
+
+        // The principal equals the function's value for the same loan ID, rounded here (not by
+        // the view's CAST) to 2 places half away from zero, as the screen does (research R2, R4).
+        // A missing or null reference value, or a null API value, is a mismatch.
+        if (expectedPrincipal is null
+            || !body.TryGetProperty("principalBalance", out var principal)
+            || principal.ValueKind != JsonValueKind.Number
+            || !TwoPlaces.IsMatch(principal.GetRawText())
+            || principal.GetDecimal() != Math.Round(expectedPrincipal.Value, 2, MidpointRounding.AwayFromZero))
+        {
+            failures.Add($"{loan.LoanId}: principalBalance");
+        }
+
+        return failures;
     }
 
     private static async Task<List<ActiveLoan>> ActiveLoans(SqlConnection reference)
@@ -128,6 +164,26 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
 
         var ordinal = reader.GetOrdinal("LoanStatusId");
         return reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
+    }
+
+    /// <summary>
+    /// The function's principal for the loan (read-only), or null unless it returns exactly one
+    /// row with a non-null value.
+    /// </summary>
+    private static async Task<decimal?> ReferencePrincipal(SqlConnection reference, int loanId)
+    {
+        await using var command = new SqlCommand(
+            "SELECT principalRemaining FROM dbo.lrFnGetBalanceSummary(@LoanId, GETDATE());",
+            reference);
+        command.Parameters.Add("@LoanId", SqlDbType.Int).Value = loanId;
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync() || reader.IsDBNull(0))
+        {
+            return null;
+        }
+
+        var value = reader.GetDecimal(0);
+        return await reader.ReadAsync() ? null : value;
     }
 
     private static async Task<string> ServerDate(SqlConnection reference)

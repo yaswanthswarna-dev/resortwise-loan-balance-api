@@ -26,9 +26,11 @@ public sealed class TestCodeSpiCallTests
         "lrLoanStatus",
     };
 
-    // The API login's permission test is the only place the function may be named (T028).
+    // The function may be named only in the API login's permission test (T028) and, as the
+    // principal reference, in the active-loan parity test (O4 revised, research R4).
     private const string BalanceFunction = "lrFnGetBalanceSummary";
     private const string PermissionTestFile = "ApiLoginPermissionTests.cs";
+    private const string ParityTestFile = "ActiveLoanParityTests.cs";
 
     private static readonly Regex DboName = new(@"\bdbo\]?\s*\.\s*\[?(?<name>[A-Za-z_][A-Za-z0-9_]*)", RegexOptions.IgnoreCase);
 
@@ -61,6 +63,7 @@ public sealed class TestCodeSpiCallTests
     [InlineData("Any.cs", "SELECT * FROM [dbo].[lrOther];")]
     [InlineData("Any.cs", "SELECT * FROM dbo.Accounts;")]
     [InlineData("Any.cs", "SELECT * FROM dbo.lrFnGetBalanceSummary(1, GETDATE());")]
+    [InlineData("NonActiveLoanTests.cs", "SELECT principalRemaining FROM dbo.lrFnGetBalanceSummary(@LoanId, GETDATE());")]
     [InlineData("Any.cs", "new SqlCommand(name, db) { CommandType = CommandType.StoredProcedure };")]
     public void Scanner_rejects_unapproved_spi_calls(string file, string code)
     {
@@ -74,6 +77,7 @@ public sealed class TestCodeSpiCallTests
     [InlineData("Any.cs", "SELECT l.ID FROM dbo.lrLoanReceivable AS l JOIN dbo.lrLoanStatus AS s ON s.ID = l.LoanStatusId;")]
     [InlineData("Any.cs", "SELECT TOP (0) * FROM rw.Loan;")]
     [InlineData(PermissionTestFile, "SELECT TOP (0) * FROM dbo.lrFnGetBalanceSummary(0, GETDATE());")]
+    [InlineData(ParityTestFile, "SELECT principalRemaining FROM dbo.lrFnGetBalanceSummary(@LoanId, GETDATE());")]
     public void Scanner_accepts_approved_spi_calls(string file, string code)
     {
         Assert.Empty(Check(file, code));
@@ -103,7 +107,8 @@ public sealed class TestCodeSpiCallTests
         ApprovedProcedures.Contains(name)
         || ApprovedTables.Contains(name)
         || (string.Equals(name, BalanceFunction, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(file, PermissionTestFile, StringComparison.Ordinal));
+            && (string.Equals(file, PermissionTestFile, StringComparison.Ordinal)
+                || string.Equals(file, ParityTestFile, StringComparison.Ordinal)));
 
     private static bool IsBuildOutput(string relativePath)
     {
