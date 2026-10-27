@@ -51,8 +51,8 @@ calculates are out of scope (spec Out of Scope).
     show.
 
   Read-only counts found further active loans in `AlphaPMS_ResortWise` matching each pattern,
-  and none matching both. Loan IDs, values, and counts are kept privately. **Decision** (Farzin,
-  2026-10-27, option B): `V004` adds two detection flags to `rw.LoanPrincipalBalance` and
+  and none matching both. Loan IDs, values, and counts are kept privately. **Option B**. O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately.
+  `V004` adds two detection flags to `rw.LoanPrincipalBalance` and
   returns `NULL` principal when either is set (data-model.md). The flags use only IDs, the
   contract ID, the transaction type, `REVApplyID`, and `IsPayOff`; no amount column is read.
   The reversal check does not filter on `Posted`, matching the counts; in the loans checked,
@@ -95,7 +95,7 @@ table) is **not** used.
 | --- | --- |
 | Active loan list | Read-only `SELECT` of loan IDs with `LoanStatusId = 1` (test code only) |
 | `loanStatus` | `lrGetLoanDetails` (`@Loanid int`, `@SalesContractId int`) for the status ID; `lrGetLoanStatusTypes` (no parameters) for the name |
-| `principalBalance` (active loans matching an O5 rule) | No value is compared. The test finds these loans with its own read-only `SELECT` on `lrLoanReceivable` and `lrTransaction` through `RW_REF_A`, written independently of `V004` (same rules, R2), and checks that the API returns principal `null`, `principalBalanceAvailable` `false`, and reason `PAID_OFF_FLAG_SET` (payoff flag set) or else `CROSS_LOAN_REVERSAL` (cross-loan reversal on the contract) for every one of them (O5, decided 2026-10-27) |
+| `principalBalance` (active loans matching an O5 rule) | No value is compared. The test finds these loans with its own read-only `SELECT` on `lrLoanReceivable` and `lrTransaction` through `RW_REF_A`, written independently of `V004` (same rules, R2), and checks that the API returns principal `null`, `principalBalanceAvailable` `false`, and reason `PAID_OFF_FLAG_SET` (payoff flag set) or else `CROSS_LOAN_REVERSAL` (cross-loan reversal on the contract) for every one of them (O5) |
 | `principalBalance` (active loans, principal available) | **`dbo.lrFnGetBalanceSummary(@Loanid, GETDATE())`, column `principalRemaining`** (`money`, scale 4), selected read-only on the reference login for every active loan that matches neither O5 rule (O4, revised by Farzin 2026-10-27; O5). The test rounds it itself to 2 places, half away from zero (`Math.Round(value, 2, MidpointRounding.AwayFromZero)`), as the screen does (R2), and requires that the function returns exactly one row with a non-null value and that the API returns a non-null number equal to it. This catches rounding, field-mapping, and null errors in `rw.LoanPrincipalBalance` and the API across all active loans. It is **not independent** of the view, which calls the same function, and it does **not** prove the value the screen shows, which the Excel engine calculates; that rests on the manual screen check of about 20 active loans (plan, Complexity Tracking). The screen's procedure `lrGetTransactionActivity` (`@Ownerid char(10)`, `@SalesContractId int`; second result set, `PrincipalRemaining`) is not called, because it reaches the database `AlphaSales` at run time and the reference login is not given access to it. `lrGetPrincipalRemaining` is not called either |
 | `principalBalance` (non-active loans) | Not in the SC-001 parity scope. A database test checks the API returns principal `null`, `principalBalanceAvailable` `false`, and reason `LOAN_NOT_ACTIVE` for every non-active record (O2). The screen check for old rewritten records was manual (T038, done 2026-10-26, details kept privately). Paid-off and cancelled records get the same rule; the screen likely shows `0.00` for them, which is not verified here (those statuses are not in use in `AlphaPMS_ResortWise`), and the engine feature must cover them (Farzin, 2026-10-27) |
 | `asOfDate` | `CAST(GETDATE() AS date)` on the reference connection, read before and after the request; the response must equal one of them (midnight-safe) |
@@ -305,8 +305,8 @@ D1–D11 are closed (see [plan.md](plan.md#decisions)). O1–O3 were decided on 
 closed (see [plan.md](plan.md#open-points-for-farzin)); O1 is option (b), the SQL path as the
 principal reference. O2 was reopened and decided by Farzin on 2026-10-26 (option B: non-active
 principal `null`, reason `LOAN_NOT_ACTIVE`). O4 was revised in Farzin's pull request review on
-2026-10-27: principal is compared automatically with `dbo.lrFnGetBalanceSummary` (R4). O5 was
-decided by Farzin on 2026-10-27 (option B: active records with the payoff flag set or a
+2026-10-27: principal is compared automatically with `dbo.lrFnGetBalanceSummary` (R4). O5 is
+option B (active records with the payoff flag set or a
 cross-loan reversal return principal `null` with reason `PAID_OFF_FLAG_SET` or
-`CROSS_LOAN_REVERSAL`; R2). R2, R8, and R9 contain schema confirmations that the first
+`CROSS_LOAN_REVERSAL`; R2). O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately. R2, R8, and R9 contain schema confirmations that the first
 implementation task resolves locally.

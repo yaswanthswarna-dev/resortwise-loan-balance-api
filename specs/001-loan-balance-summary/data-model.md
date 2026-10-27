@@ -91,7 +91,7 @@ One row per loan record. Read from SPI tables only. Unchanged by `V004`.
 ### `rw.LoanPrincipalBalance`
 
 One row per loan record. Created by `V002`; redefined by `V003` (O2, decided 2026-10-26) and by
-`V004` (O5, decided 2026-10-27), because a versioned script is never edited after it is applied.
+`V004` (O5, option B), because a versioned script is never edited after it is applied. O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately.
 The table shows the `V004` definition.
 
 | Column | Value |
