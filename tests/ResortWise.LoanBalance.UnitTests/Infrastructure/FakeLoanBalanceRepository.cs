@@ -22,7 +22,14 @@ public sealed class FakeLoanBalanceRepository : ILoanBalanceRepository
         AddRow(loanId, NonActiveStatusId, status, null);
 
     /// <summary>Any row, including ones the view should never return, to test the endpoint's guards.</summary>
-    public FakeLoanBalanceRepository AddRow(int loanId, int statusId, string status, decimal? principal, DateTime? asOf = null)
+    public FakeLoanBalanceRepository AddRow(
+        int loanId,
+        int statusId,
+        string status,
+        decimal? principal,
+        DateTime? asOf = null,
+        bool payOffFlagSet = false,
+        bool crossLoanReversal = false)
     {
         rows[loanId] = new LoanBalanceRow
         {
@@ -31,6 +38,8 @@ public sealed class FakeLoanBalanceRepository : ILoanBalanceRepository
             LoanStatusName = status,
             AsOfDate = asOf ?? new DateTime(2026, 10, 22),
             PrincipalBalance = principal,
+            PayOffFlagSet = payOffFlagSet,
+            CrossLoanReversal = crossLoanReversal,
         };
         return this;
     }

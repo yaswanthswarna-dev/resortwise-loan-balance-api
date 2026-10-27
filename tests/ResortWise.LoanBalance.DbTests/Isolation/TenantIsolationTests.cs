@@ -23,6 +23,7 @@ public sealed class TenantIsolationTests(DatabaseFixture fixture)
         var statusInA = await StatusNames(fixture.RefA, $"{TenantBSetupCheck.ChangedRule} AND l.LoanStatusId = 1");
         var loanIds = statusInA.Keys.ToList();
         var statusInB = await StatusNames(fixture.RefB, TenantBSetupCheck.ChangedRule);
+        var reasonInA = await ExpectedO5Reasons(fixture.RefA, $"{TenantBSetupCheck.ChangedRule} AND l.LoanStatusId = 1");
         Assert.NotEmpty(loanIds);
 
         using var clientA = fixture.CreateClient(fixture.BothTenantsKey, DatabaseFixture.TenantA);
@@ -52,8 +53,19 @@ public sealed class TenantIsolationTests(DatabaseFixture fixture)
                 failures.Add($"{loanId}: tenant B loanStatus");
             }
 
-            // Tenant A: active, so the principal is a number and available.
-            if (jsonA.RootElement.GetProperty("principalBalance").ValueKind != JsonValueKind.Number
+            // Tenant A: active. The principal is a number and available, unless an O5 rule applies:
+            // then null, not available, with the O5 reason.
+            if (reasonInA.GetValueOrDefault(loanId) is { } expectedReasonA)
+            {
+                if (jsonA.RootElement.GetProperty("principalBalance").ValueKind != JsonValueKind.Null
+                    || jsonA.RootElement.GetProperty("principalBalanceAvailable").ValueKind != JsonValueKind.False
+                    || !jsonA.RootElement.TryGetProperty("principalUnavailableReason", out var reasonA)
+                    || reasonA.GetString() != expectedReasonA)
+                {
+                    failures.Add($"{loanId}: tenant A principal");
+                }
+            }
+            else if (jsonA.RootElement.GetProperty("principalBalance").ValueKind != JsonValueKind.Number
                 || jsonA.RootElement.GetProperty("principalBalanceAvailable").ValueKind != JsonValueKind.True)
             {
                 failures.Add($"{loanId}: tenant A principal");
@@ -135,6 +147,31 @@ public sealed class TenantIsolationTests(DatabaseFixture fixture)
         }
 
         return names;
+    }
+
+    // The O5 reason each matching record is expected to return; records whose principal is
+    // available are left out (O5Rules).
+    private static async Task<Dictionary<int, string>> ExpectedO5Reasons(string connectionString, string where)
+    {
+        await using var db = await DatabaseFixture.OpenAsync(connectionString);
+        await using var command = new SqlCommand(
+            $"""
+            SELECT l.ID, {O5Rules.ExpectedReason}
+            FROM dbo.lrLoanReceivable AS l
+            WHERE {where};
+            """,
+            db);
+        await using var reader = await command.ExecuteReaderAsync();
+        var reasons = new Dictionary<int, string>();
+        while (await reader.ReadAsync())
+        {
+            if (!reader.IsDBNull(1))
+            {
+                reasons[reader.GetInt32(0)] = reader.GetString(1);
+            }
+        }
+
+        return reasons;
     }
 
     // One above the highest loan record ID in tenant A; tenant B only has fewer records.

@@ -143,7 +143,9 @@ docker build -t resortwise-loan-balance . ; docker run --env-file <local env fil
 | Valid key, unknown tenant | 403 `TENANT_FORBIDDEN` (identical body) |
 | `/v1/loans/007/balance-summary` | 400 `LOAN_ID_INVALID`, field `loanId` |
 | A loan ID that does not exist | 404 `LOAN_NOT_FOUND` |
-| An active loan | 200; `loanId`, `loanStatus`, `asOfDate`, `principalBalance`, `principalBalanceAvailable` (`true`) only, matching the [contract](contracts/loan-balance-summary.openapi.yaml) |
+| An active loan that matches neither O5 rule | 200; `loanId`, `loanStatus`, `asOfDate`, `principalBalance`, `principalBalanceAvailable` (`true`) only, matching the [contract](contracts/loan-balance-summary.openapi.yaml) |
+| An active loan whose payoff flag is set | 200; status `Active`, `principalBalance` `null`, `principalBalanceAvailable` `false`, `principalUnavailableReason` `PAID_OFF_FLAG_SET` (O5) |
+| An active loan on a contract with a cross-loan reversal (payoff flag not set) | 200; status `Active`, `principalBalance` `null`, `principalBalanceAvailable` `false`, `principalUnavailableReason` `CROSS_LOAN_REVERSAL` (O5) |
 | An old rewritten loan record | 200; its own non-active status, `principalBalance` `null` (never `0.00`), `principalBalanceAvailable` `false`, `principalUnavailableReason` `LOAN_NOT_ACTIVE` |
 
 Each request writes exactly one JSON audit line to stdout, with no amounts.
@@ -169,6 +171,9 @@ $env:RW_DB_TESTS = "1"; dotnet test --filter "Category=Database"   # local only
 ```
 
 Expected: parity has 0 mismatches over all active loans in `AlphaPMS_ResortWise` (SC-001), every
-non-active record returns principal `null` with reason `LOAN_NOT_ACTIVE`, the API login cannot read SPI objects, and the
+non-active record returns principal `null` with reason `LOAN_NOT_ACTIVE`, every active record
+matching an O5 rule returns principal `null` with reason `PAID_OFF_FLAG_SET` or
+`CROSS_LOAN_REVERSAL` (counts per reason go only to git-ignored `TestResults/o5-checks.txt`, never
+into the PR), the API login cannot read SPI objects, and the
 isolation suite passes (SC-002, SC-003, SC-005). The test run prints the PR summary: date,
 database name, loans checked, passed and failed counts. Paste only that summary into the PR.

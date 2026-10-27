@@ -12,4 +12,10 @@ public sealed class LoanBalanceRow
     public DateTime AsOfDate { get; init; }
 
     public decimal? PrincipalBalance { get; init; }
+
+    /// <summary>V004: the record's payoff flag is set in SPI (O5).</summary>
+    public bool PayOffFlagSet { get; init; }
+
+    /// <summary>V004: the contract has a reversal of a transaction on a different loan record (O5).</summary>
+    public bool CrossLoanReversal { get; init; }
 }

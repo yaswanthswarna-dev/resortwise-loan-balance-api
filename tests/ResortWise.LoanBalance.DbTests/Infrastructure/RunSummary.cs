@@ -50,6 +50,19 @@ public static class RunSummary
         return path;
     }
 
+    /// <summary>
+    /// Writes counts that must not reach the pull request (for example the O5 checks per reason)
+    /// to a separate git-ignored file in <c>TestResults/</c>, never to the run summary, and
+    /// returns the file path.
+    /// </summary>
+    public static string WritePrivateCounts(string fileName, IEnumerable<string> lines)
+    {
+        var directory = Directory.CreateDirectory(Path.Combine(ResultsDirectory(), "TestResults"));
+        var path = Path.Combine(directory.FullName, fileName);
+        File.WriteAllLines(path, lines);
+        return path;
+    }
+
     private static string ResultsDirectory()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

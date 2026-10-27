@@ -20,12 +20,24 @@ namespace ResortWise.LoanBalance.DbTests.Parity;
 /// rounding, mapping, and null errors across all active loans but does not prove the value the
 /// screen shows, which the Excel engine calculates; that rests on the manual screen check (plan,
 /// Complexity Tracking).
+/// O5 (Farzin, 2026-10-27): an active record whose payoff flag is set, or whose contract has a
+/// reversal on one loan record that reverses a transaction on a different loan record, shows a
+/// screen value the function cannot reproduce. This test finds those records with its own
+/// read-only query on SPI tables, independent of the <c>rw</c> view, and checks that the API
+/// returns principal null, not available, with <c>PAID_OFF_FLAG_SET</c> or
+/// <c>CROSS_LOAN_REVERSAL</c>; principal is compared only for the other active records. The
+/// per-reason counts go to git-ignored <c>TestResults/o5-checks.txt</c>, never to the run summary
+/// that is pasted into the pull request.
 /// </summary>
 [Trait("Category", "Database")]
 [Collection(DatabaseCollection.Name)]
 public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
 {
-    private sealed record ActiveLoan(int LoanId, int SalesContractId);
+    private const string PaidOffFlagSet = O5Rules.PaidOffFlagSet;
+    private const string CrossLoanReversal = O5Rules.CrossLoanReversal;
+
+    /// <summary>An active loan record and the O5 reason it is expected to return, or null when its principal is available.</summary>
+    private sealed record ActiveLoan(int LoanId, int SalesContractId, string? ExpectedReason);
 
     private static readonly Regex TwoPlaces = new(@"^-?[0-9]+\.[0-9]{2}$");
 
@@ -50,10 +62,23 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
         }
 
         var failed = failures.Select(failure => failure.Split(':')[0]).Distinct().Count();
-        var principalFailed = failures.Where(failure => failure.EndsWith(": principalBalance", StringComparison.Ordinal)).Count();
         RunSummary.Record(nameof(ActiveLoanParityTests), DatabaseFixture.DatabaseA, loans.Count, loans.Count - failed, failed);
-        RunSummary.Record($"{nameof(ActiveLoanParityTests)} (principal)", DatabaseFixture.DatabaseA, loans.Count, loans.Count - principalFailed, principalFailed);
+
+        var paidOff = loans.Count(loan => loan.ExpectedReason == PaidOffFlagSet);
+        var crossLoan = loans.Count(loan => loan.ExpectedReason == CrossLoanReversal);
+        RunSummary.WritePrivateCounts("o5-checks.txt",
+        [
+            $"Principal compared: {loans.Count - paidOff - crossLoan}",
+            $"{PaidOffFlagSet} checked: {paidOff}",
+            $"{CrossLoanReversal} checked: {crossLoan}",
+        ]);
+
         Assert.True(failures.Count == 0, $"{failed} loans failed; details in {RunSummary.WriteFailures(nameof(ActiveLoanParityTests), failures)}");
+
+        // AlphaPMS_ResortWise stays exactly as restored, so both O5 rules have records to check;
+        // a count of 0 would leave a rule untested.
+        Assert.True(paidOff > 0, $"No active record matches {PaidOffFlagSet}, so the rule is untested.");
+        Assert.True(crossLoan > 0, $"No active record matches {CrossLoanReversal}, so the rule is untested.");
     }
 
     /// <summary>
@@ -65,7 +90,7 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
     {
         var before = await ServerDate(reference);
         using var response = await client.GetAsync($"/v1/loans/{loan.LoanId}/balance-summary");
-        var expectedPrincipal = await ReferencePrincipal(reference, loan.LoanId);
+        var expectedPrincipal = loan.ExpectedReason is null ? await ReferencePrincipal(reference, loan.LoanId) : null;
         var after = await ServerDate(reference);
         if (before != after)
         {
@@ -95,7 +120,33 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
             failures.Add($"{loan.LoanId}: asOfDate");
         }
 
-        // Active, so the principal is available: a number, never null, and no reason (FR-008a, O2).
+        if (loan.ExpectedReason is not null)
+        {
+            // O5: null principal (the JSON null token), not available, and the expected reason.
+            // The function is not called, because its value is not the screen's for this record.
+            if (!body.TryGetProperty("principalBalance", out var unavailable)
+                || unavailable.ValueKind != JsonValueKind.Null)
+            {
+                failures.Add($"{loan.LoanId}: principalBalance");
+            }
+
+            if (!body.TryGetProperty("principalBalanceAvailable", out var notAvailable)
+                || notAvailable.ValueKind != JsonValueKind.False)
+            {
+                failures.Add($"{loan.LoanId}: principalBalanceAvailable");
+            }
+
+            if (!body.TryGetProperty("principalUnavailableReason", out var reason)
+                || !string.Equals(reason.GetString(), loan.ExpectedReason, StringComparison.Ordinal))
+            {
+                failures.Add($"{loan.LoanId}: principalUnavailableReason");
+            }
+
+            return failures;
+        }
+
+        // Active and no O5 rule applies, so the principal is available: a number, never null,
+        // and no reason (FR-008a, O2, O5).
         if (!body.TryGetProperty("principalBalanceAvailable", out var available)
             || available.ValueKind != JsonValueKind.True)
         {
@@ -122,16 +173,24 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
         return failures;
     }
 
+    /// <summary>
+    /// Every active loan record with its expected O5 reason (<see cref="O5Rules"/>), by rule,
+    /// never a list of loans, read-only.
+    /// </summary>
     private static async Task<List<ActiveLoan>> ActiveLoans(SqlConnection reference)
     {
         await using var command = new SqlCommand(
-            "SELECT l.ID, l.SalesContractId FROM dbo.lrLoanReceivable AS l WHERE l.LoanStatusId = 1;",
+            $"""
+            SELECT l.ID, l.SalesContractId, {O5Rules.ExpectedReason}
+            FROM dbo.lrLoanReceivable AS l
+            WHERE l.LoanStatusId = 1;
+            """,
             reference);
         await using var reader = await command.ExecuteReaderAsync();
         var loans = new List<ActiveLoan>();
         while (await reader.ReadAsync())
         {
-            loans.Add(new ActiveLoan(reader.GetInt32(0), reader.GetInt32(1)));
+            loans.Add(new ActiveLoan(reader.GetInt32(0), reader.GetInt32(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
         }
 
         return loans;

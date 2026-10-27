@@ -85,4 +85,16 @@ public sealed class ContractConsistencyTests
 
         Assert.Equal(PrincipalUnavailableReasons.All.Order(StringComparer.Ordinal), reasons.Order(StringComparer.Ordinal));
     }
+
+    // O2 and O5: exactly these three reasons, so neither side can add or drop one unnoticed.
+    [Fact]
+    public void Unavailable_reasons_are_exactly_the_o2_and_o5_codes()
+    {
+        var reasons = Document.Value.Components.Schemas["LoanBalanceSummary"].Properties["principalUnavailableReason"].Enum
+            .Select(value => ((OpenApiString)value).Value);
+
+        string[] expected = ["CROSS_LOAN_REVERSAL", "LOAN_NOT_ACTIVE", "PAID_OFF_FLAG_SET"];
+        Assert.Equal(expected, reasons.Order(StringComparer.Ordinal));
+        Assert.Equal(expected, PrincipalUnavailableReasons.All.Order(StringComparer.Ordinal));
+    }
 }
