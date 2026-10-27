@@ -28,6 +28,26 @@ public sealed class NullPrincipalSerializationTests
         Assert.Contains("\"principalBalance\":null", body, StringComparison.Ordinal);
     }
 
+    // Farzin's O2 note (2026-10-27): paid-off and cancelled records get the same rule, although
+    // the screen likely shows 0.00 for them; the engine feature must cover them. Synthetic statuses.
+    [Theory]
+    [InlineData(3, "Paid Off")]
+    [InlineData(4, "Cancelled")]
+    public async Task Paid_off_and_cancelled_loans_return_null_principal_not_available_and_the_reason(int statusId, string statusName)
+    {
+        var repository = new FakeLoanBalanceRepository().AddRow(100246, statusId, statusName, null);
+
+        var (status, body) = await Get(repository, 100246);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(statusName, json.RootElement.GetProperty("loanStatus").GetString());
+        Assert.Equal("null", json.RootElement.GetProperty("principalBalance").GetRawText());
+        Assert.False(json.RootElement.GetProperty("principalBalanceAvailable").GetBoolean());
+        Assert.Equal("LOAN_NOT_ACTIVE", json.RootElement.GetProperty("principalUnavailableReason").GetString());
+        Assert.DoesNotContain("\"principalBalance\":0", body, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("\"principalBalance\":0")]
     [InlineData("\"principalBalance\":0.0")]
