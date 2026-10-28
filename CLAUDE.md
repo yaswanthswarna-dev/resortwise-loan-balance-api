@@ -22,6 +22,9 @@ Secrets live only in git-ignored local settings: `dotnet user-secrets`, `appsett
 Pull request descriptions, comments, and reviews are public too. Never paste loan values, owner
 details, or any other client data into them.
 
+Pull request descriptions drafted for this repository never include "Generated with Claude Code"
+or any other AI attribution line.
+
 Before every commit, check the staged diff (`git diff --cached`) for secrets and real data. If a
 secret is ever committed, treat it as compromised and rotate it. Rewriting history is not enough.
 
