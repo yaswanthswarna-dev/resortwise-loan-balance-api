@@ -44,7 +44,7 @@ public static class BalanceSummaryEndpoint
     }
 
     // Principal availability (FR-008a): the first rule that applies gives the reason. Not active
-    // (O2), then the payoff flag, then a cross-loan reversal (O5); V004 returns NULL in all three.
+    // (O2), then the payoff flag (O5); V005 returns NULL in both.
     // Otherwise the record carries the view's principal. A row that breaks this rule is an
     // internal error, so the view and the API never disagree silently.
     private static LoanBalanceSummaryResponse ToResponse(LoanBalanceRow row)
@@ -70,7 +70,6 @@ public static class BalanceSummaryEndpoint
     private static string? UnavailableReason(LoanBalanceRow row) =>
         row.LoanStatusId != ActiveStatusId ? PrincipalUnavailableReasons.LoanNotActive
         : row.PayOffFlagSet ? PrincipalUnavailableReasons.PaidOffFlagSet
-        : row.CrossLoanReversal ? PrincipalUnavailableReasons.CrossLoanReversal
         : null;
 
     // SPI's Active status (LoanStatusId = 1), the same rule as rw.LoanPrincipalBalance.

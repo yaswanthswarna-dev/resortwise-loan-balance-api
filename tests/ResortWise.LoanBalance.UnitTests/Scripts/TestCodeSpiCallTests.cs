@@ -20,12 +20,11 @@ public sealed class TestCodeSpiCallTests
     };
 
     // Tests may select from SPI tables; listing them keeps every other SPI name a failure.
-    // lrTransaction is read by the active-loan parity test to find the O5 loans (research R4).
+    // lrTransaction is no longer approved: only the dropped O5 cross-loan rule read it (research R4).
     private static readonly HashSet<string> ApprovedTables = new(StringComparer.OrdinalIgnoreCase)
     {
         "lrLoanReceivable",
         "lrLoanStatus",
-        "lrTransaction",
     };
 
     // The function may be named only in the API login's permission test (T028) and, as the
@@ -61,6 +60,7 @@ public sealed class TestCodeSpiCallTests
     [Theory]
     [InlineData("Any.cs", "EXEC dbo.lrPostPayment @Loanid = 1;")]
     [InlineData("Any.cs", "SELECT * FROM dbo.lrSomeOtherTable;")]
+    [InlineData("Any.cs", "SELECT t.LoanId, t.REVApplyID FROM dbo.lrTransaction AS t WHERE t.TransTypeid = 1;")]
     [InlineData("Any.cs", "EXEC lrRecalculateLoan 1;")]
     [InlineData("Any.cs", "SELECT * FROM [dbo].[lrOther];")]
     [InlineData("Any.cs", "SELECT * FROM dbo.Accounts;")]
@@ -78,7 +78,6 @@ public sealed class TestCodeSpiCallTests
     [InlineData("Any.cs", "EXEC [dbo].[lrGetTransactionActivity] @Ownerid = 'x', @SalesContractId = 2;")]
     [InlineData("Any.cs", "SELECT l.ID FROM dbo.lrLoanReceivable AS l JOIN dbo.lrLoanStatus AS s ON s.ID = l.LoanStatusId;")]
     [InlineData("Any.cs", "SELECT TOP (0) * FROM rw.Loan;")]
-    [InlineData("Any.cs", "SELECT t.LoanId, t.REVApplyID FROM dbo.lrTransaction AS t WHERE t.TransTypeid = 1;")]
     [InlineData(PermissionTestFile, "SELECT TOP (0) * FROM dbo.lrFnGetBalanceSummary(0, GETDATE());")]
     [InlineData(ParityTestFile, "SELECT principalRemaining FROM dbo.lrFnGetBalanceSummary(@LoanId, GETDATE());")]
     public void Scanner_accepts_approved_spi_calls(string file, string code)

@@ -21,21 +21,18 @@ namespace ResortWise.LoanBalance.DbTests.Parity;
 /// screen shows, which the Excel engine calculates; that rests on the manual screen check (plan,
 /// Complexity Tracking).
 /// O5 (proposed by Yaswanth 2026-10-27, agreed by Farzin pending his PR approval): an active
-/// record whose payoff flag is set, or whose contract has a reversal on one loan record that
-/// reverses a transaction on a different loan record, shows a screen value the function cannot
-/// reproduce. This test finds those records with its own
-/// read-only query on SPI tables, independent of the <c>rw</c> view, and checks that the API
-/// returns principal null, not available, with <c>PAID_OFF_FLAG_SET</c> or
-/// <c>CROSS_LOAN_REVERSAL</c>; principal is compared only for the other active records. The
-/// per-reason counts go to git-ignored <c>TestResults/o5-checks.txt</c>, never to the run summary
-/// that is pasted into the pull request.
+/// record whose payoff flag is set shows a screen value the function cannot reproduce. This test
+/// finds those records with its own read-only query on SPI tables, independent of the <c>rw</c>
+/// view, and checks that the API returns principal null, not available, with
+/// <c>PAID_OFF_FLAG_SET</c>; principal is compared for every other active record, including those
+/// the dropped cross-loan rule used to flag (2026-10-28). The counts go to git-ignored
+/// <c>TestResults/o5-checks.txt</c>, never to the run summary that is pasted into the pull request.
 /// </summary>
 [Trait("Category", "Database")]
 [Collection(DatabaseCollection.Name)]
 public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
 {
     private const string PaidOffFlagSet = O5Rules.PaidOffFlagSet;
-    private const string CrossLoanReversal = O5Rules.CrossLoanReversal;
 
     /// <summary>An active loan record and the O5 reason it is expected to return, or null when its principal is available.</summary>
     private sealed record ActiveLoan(int LoanId, int SalesContractId, string? ExpectedReason);
@@ -66,20 +63,17 @@ public sealed class ActiveLoanParityTests(DatabaseFixture fixture)
         RunSummary.Record(nameof(ActiveLoanParityTests), DatabaseFixture.DatabaseA, loans.Count, loans.Count - failed, failed);
 
         var paidOff = loans.Count(loan => loan.ExpectedReason == PaidOffFlagSet);
-        var crossLoan = loans.Count(loan => loan.ExpectedReason == CrossLoanReversal);
         RunSummary.WritePrivateCounts("o5-checks.txt",
         [
-            $"Principal compared: {loans.Count - paidOff - crossLoan}",
+            $"Principal compared: {loans.Count - paidOff}",
             $"{PaidOffFlagSet} checked: {paidOff}",
-            $"{CrossLoanReversal} checked: {crossLoan}",
         ]);
 
         Assert.True(failures.Count == 0, $"{failed} loans failed; details in {RunSummary.WriteFailures(nameof(ActiveLoanParityTests), failures)}");
 
-        // AlphaPMS_ResortWise stays exactly as restored, so both O5 rules have records to check;
-        // a count of 0 would leave a rule untested.
+        // AlphaPMS_ResortWise stays exactly as restored, so the O5 rule has records to check; a
+        // count of 0 would leave it untested.
         Assert.True(paidOff > 0, $"No active record matches {PaidOffFlagSet}, so the rule is untested.");
-        Assert.True(crossLoan > 0, $"No active record matches {CrossLoanReversal}, so the rule is untested.");
     }
 
     /// <summary>

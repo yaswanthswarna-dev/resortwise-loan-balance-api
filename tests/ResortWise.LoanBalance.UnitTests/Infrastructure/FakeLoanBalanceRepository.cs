@@ -28,8 +28,7 @@ public sealed class FakeLoanBalanceRepository : ILoanBalanceRepository
         string status,
         decimal? principal,
         DateTime? asOf = null,
-        bool payOffFlagSet = false,
-        bool crossLoanReversal = false)
+        bool payOffFlagSet = false)
     {
         rows[loanId] = new LoanBalanceRow
         {
@@ -39,7 +38,6 @@ public sealed class FakeLoanBalanceRepository : ILoanBalanceRepository
             AsOfDate = asOf ?? new DateTime(2026, 10, 22),
             PrincipalBalance = principal,
             PayOffFlagSet = payOffFlagSet,
-            CrossLoanReversal = crossLoanReversal,
         };
         return this;
     }

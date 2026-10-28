@@ -11,7 +11,7 @@ namespace ResortWise.LoanBalance.Api.Loans;
 public sealed class LoanBalanceRepository(ITenantConnectionFactory connections) : ILoanBalanceRepository
 {
     private const string Sql = """
-        SELECT l.LoanId, l.LoanStatusId, l.LoanStatusName, p.AsOfDate, p.PrincipalBalance, p.PayOffFlagSet, p.CrossLoanReversal
+        SELECT l.LoanId, l.LoanStatusId, l.LoanStatusName, p.AsOfDate, p.PrincipalBalance, p.PayOffFlagSet
         FROM rw.Loan AS l
         JOIN rw.LoanPrincipalBalance AS p ON p.LoanId = l.LoanId
         WHERE l.LoanId = @LoanId;
