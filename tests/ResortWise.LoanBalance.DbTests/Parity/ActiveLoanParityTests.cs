@@ -20,9 +20,10 @@ namespace ResortWise.LoanBalance.DbTests.Parity;
 /// rounding, mapping, and null errors across all active loans but does not prove the value the
 /// screen shows, which the Excel engine calculates; that rests on the manual screen check (plan,
 /// Complexity Tracking).
-/// O5 (Farzin, 2026-10-27): an active record whose payoff flag is set, or whose contract has a
-/// reversal on one loan record that reverses a transaction on a different loan record, shows a
-/// screen value the function cannot reproduce. This test finds those records with its own
+/// O5 (proposed by Yaswanth 2026-10-27, agreed by Farzin pending his PR approval): an active
+/// record whose payoff flag is set, or whose contract has a reversal on one loan record that
+/// reverses a transaction on a different loan record, shows a screen value the function cannot
+/// reproduce. This test finds those records with its own
 /// read-only query on SPI tables, independent of the <c>rw</c> view, and checks that the API
 /// returns principal null, not available, with <c>PAID_OFF_FLAG_SET</c> or
 /// <c>CROSS_LOAN_REVERSAL</c>; principal is compared only for the other active records. The
