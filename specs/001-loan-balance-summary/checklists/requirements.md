@@ -38,7 +38,7 @@
   load target) were answered in the spec's Clarifications, and O1–O3 were decided on 2026-10-23.
 - Reduced scope (2026-10-23, updated 2026-10-26): the response has `loanId`, `loanStatus`,
   `asOfDate`, `principalBalance` (`null` when not available), `principalBalanceAvailable`,
-  and, only when not available, `principalUnavailableReason` (`LOAN_NOT_ACTIVE`, O2 option B;
-  `PAID_OFF_FLAG_SET` for active records with the payoff flag set, O5; `CROSS_LOAN_REVERSAL` was dropped on 2026-10-28). Payoff amount, interest, fees, unapplied
+  and, only when not available, `principalUnavailableReason` (`LOAN_NOT_ACTIVE` or
+  `PAID_OFF_FLAG_SET`). Payoff amount, interest, fees, unapplied
   amount, Others 1 to 5 and their names, total balance, and past due are out of scope (spec Out
   of Scope), and FR-004 and FR-005 are withdrawn. No checklist item depends on them.

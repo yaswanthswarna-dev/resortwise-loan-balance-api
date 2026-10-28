@@ -43,7 +43,7 @@
   belongs to the payoff feature.
 - Q: What does the API return for an old, rewritten loan ID? → A: (a) The API works per loan
   record. An old, rewritten loan ID returns that loan record's own balance summary with its
-  non-active status (principal not available since 2026-10-26, see O2). Last Payment and the YTD totals are not returned by this API, so the
+  non-active status (principal not available, see O2). Last Payment and the YTD totals are not returned by this API, so the
   per-contract behavior of the Balance Summary tab does not affect it.
 - Q: Should test loans with conflicting values on the same screen be excluded from the parity
   test? → A: No. They stay in the parity test, because the API only has to match the chosen screen
@@ -63,56 +63,6 @@
   [Out of Scope](#out-of-scope)). FR-004 and FR-005 are withdrawn; other requirement IDs are
   unchanged.
 - The as-of date is the SQL Server's current date for now (see [Assumptions](#assumptions)).
-
-### Farzin's decision on non-active principal (2026-10-26)
-
-- The earlier rule that a non-active loan record returns principal `0.00` was wrong. The manual
-  screen check (T038) found that the Balance Summary tab shows each old rewritten loan record's
-  own principal balance, not `0.00`, and only the SPI Excel loan engine calculates that value.
-- Option B: for every non-active loan record, the API returns its status, but
-  `principalBalance` is `null`, never `0.00`, with `principalBalanceAvailable` `false` and
-  `principalUnavailableReason` `LOAN_NOT_ACTIVE`, until the engine feature covers it.
-  "Rewritten" is the only non-active status in use in `AlphaPMS_ResortWise`. The other
-  non-active statuses get the same rule, because their screen value cannot be verified without
-  the engine. See FR-008a and O2.
-
-### Farzin's pull request review (2026-10-27)
-
-- O1 and O2 are approved. O4 was not approved as written and is revised (see O4).
-- O4 revised: the automated parity test compares `principalBalance` for every active loan with a
-  read-only call to `dbo.lrFnGetBalanceSummary` through the test-only reference login, applying
-  the same rounding to 2 decimal places, field mapping, and null rule. This catches rounding,
-  mapping, and null errors across all active loans. It does not prove the value the screen
-  shows, because the SPI Excel loan engine calculates that value.
-- The manual screen check of active loans grows from 5 to about 20, including partly paid and
-  delinquent loans, picked by a rule, never by listing loans. Results are kept private.
-- O2 note: the null rule also covers paid-off and cancelled loan records, for which the screen
-  likely shows `0.00`. The API still returns `null` for them, and the engine feature must cover
-  them.
-
-### O5: active loans with SPI data issues (2026-10-27)
-
-- O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately. See
-  [Handed to the engine feature](#handed-to-the-engine-feature).
-- **Cross-loan rule dropped (2026-10-28)**: O5 first had a second rule, `CROSS_LOAN_REVERSAL`,
-  for an active record on a contract where a reversal on one loan record reverses a
-  transaction on a different loan record. It came from a misread screen value: the loan read as
-  showing `0.00` shows the same principal as `dbo.lrFnGetBalanceSummary`, and a later screen
-  check of other loans the rule flagged found the same. The rule had no confirmed case and hid
-  correct values, so it is dropped, and `CROSS_LOAN_REVERSAL` is removed from the reason codes
-  before first release. O5 is now only the payoff flag rule, still proposed by Yaswanth and
-  pending Farzin's PR approval.
-- A read-only investigation of active loans whose Balance Summary tab shows principal `0.00`
-  while `dbo.lrFnGetBalanceSummary` returns a balance found an SPI data pattern that the SQL
-  function cannot see: the loan record's payoff flag (`lrLoanReceivable.IsPayOff`) is set
-  although the posted payments do not pay off the principal. The function ignores the payoff
-  flag. Read-only counts found further active loans with the flag set in `AlphaPMS_ResortWise`.
-  Loan IDs, values, and counts are kept privately.
-- Option B: for an **active** loan record whose payoff flag is set, `principalBalance` is `null`,
-  `principalBalanceAvailable` is `false`, and `principalUnavailableReason` is
-  `PAID_OFF_FLAG_SET`. Non-active records keep `LOAN_NOT_ACTIVE`. The view only detects the flag
-  from SPI tables and never calculates an amount. This is a documented deviation from
-  Principle IV, signed off by Farzin's pull request approval. See FR-008a and O5.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -142,16 +92,11 @@ for the same loan, read automatically from SPI as described in FR-021.
    out-of-scope balance fields (see [Out of Scope](#out-of-scope)).
 4. **Given** a non-active loan record in the caller's tenant (for example an old record left
    behind by a rewrite), **When** the caller requests its balance summary, **Then** the response
-   is HTTP 200 with the record's own status, `principalBalance` `null` (never `0.00`),
-   `principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE`
-   (FR-008a).
+   is HTTP 200 with the record's own status and principal not available as decided in
+   [O2](#open-point-decisions) (FR-008a).
 5. **Given** an active loan record whose payoff flag is set, **When** the caller requests its
-   balance summary, **Then** the response is HTTP 200 with status `Active`, `principalBalance`
-   `null`, `principalBalanceAvailable` `false`, and `principalUnavailableReason`
-   `PAID_OFF_FLAG_SET` (FR-008a, O5).
-6. *Withdrawn (2026-10-28)*: the cross-loan reversal scenario was dropped with the cross-loan
-   rule (O5). An active loan record whose payoff flag is not set returns its principal
-   (scenario 1), whatever reversals its contract has.
+   balance summary, **Then** the response is HTTP 200 with status `Active` and principal not
+   available as decided in [O5](#open-point-decisions) (FR-008a).
 
 ---
 
@@ -241,28 +186,21 @@ the documented status, code, and field.
   credential (401), tenant header (400), tenant authorization (403), loan ID format (400), loan
   existence (404).
 - **Loan exists but is not active** (any SPI status other than exactly "Active", for example paid
-  off or cancelled): the summary is still returned, with the status the SPI Application shows,
-  principal balance `null` (never `0.00`), `principalBalanceAvailable` `false`, and
-  `principalUnavailableReason` `LOAN_NOT_ACTIVE` (FR-008a; decided in O2).
+  off or cancelled): the summary is still returned, with the status the SPI Application shows
+  and principal not available as decided in O2 (FR-008a).
   Parity success (SC-001) is measured only on loans whose status is "Active".
 - **Old loan record left behind by a rewrite**: the API works per loan record, so the old loan ID
-  returns that loan record's own non-active status with principal balance `null`, not available,
-  reason `LOAN_NOT_ACTIVE` (FR-008a; decided in O2). It never returns the new loan's principal
-  on the same contract. The screen shows the old record's own balance, which only the SPI Excel
-  loan engine calculates, so the API does not return it until the engine feature covers it. It
-  is outside the SC-001 parity scope because it is not active.
-- **Active loan with its payoff flag set** (`IsPayOff = 1`): principal balance `null`, not
-  available, reason `PAID_OFF_FLAG_SET`, whatever its transactions say (FR-008a; decided in O5).
-- **Active loan on a contract with a reversal across loan records** (a reversal on one loan
-  record of the contract reverses a transaction on a different loan record): treated like any
-  other active record; its principal comes from the SQL function (the cross-loan rule was
-  dropped on 2026-10-28, O5).
+  returns that loan record's own non-active status with principal not available as decided in
+  O2 (FR-008a). It never returns the new loan's principal on the same contract. It is outside
+  the SC-001 parity scope because it is not active.
+- **Active loan with its payoff flag set** (`IsPayOff = 1`): principal not available as decided
+  in O5, whatever its transactions say (FR-008a).
 - **Several reasons at once**: one reason is returned, in the order of FR-008a: `LOAN_NOT_ACTIVE`,
   then `PAID_OFF_FLAG_SET`. A non-active record with the payoff flag set returns
   `LOAN_NOT_ACTIVE`.
 - **Active loan whose principal cannot be read** (the view returns no principal for an active
   record whose payoff flag is not set): HTTP 500 `INTERNAL_ERROR`. `null` principal is never
-  returned for an active record except under the O5 rule.
+  returned for an active record except under O5.
 - **Loan whose view row carries a principal although it is not available** (the view returns a
   principal for a non-active record or for an active record with the payoff flag set): HTTP 500
   `INTERNAL_ERROR`. A principal is never returned when it is not available, so the view and the
@@ -323,25 +261,13 @@ the documented status, code, and field.
   year-to-date totals are not returned. Principal availability is decided by the first rule that
   applies, in this order:
   - **Not active** (any status other than exactly "Active", including an old record left behind
-    by a rewrite):
-    principal balance is `null`, never `0.00`; principal balance available is `false`; and
-    principal unavailable reason is `LOAN_NOT_ACTIVE`. The SPI Application screen shows such a
-    record's own principal, which only the SPI Excel loan engine calculates, and the SPI function
-    the API reuses returns one principal per contract, which belongs to the contract's active
-    record (see the plan's per-loan-record rule). So the API cannot return the screen's value and
-    does not return any other value in its place. A later engine feature may make the principal
-    available for non-active records (decided in O2, 2026-10-26).
-  - **Active, payoff flag set** (`lrLoanReceivable.IsPayOff = 1` on the record): principal
-    balance is `null`, principal balance available is `false`, and principal unavailable reason
-    is `PAID_OFF_FLAG_SET`. The SQL function ignores the flag, so its value can differ from the
-    screen (O5, 2026-10-27).
+    by a rewrite): as decided in [O2](#open-point-decisions).
+  - **Active, payoff flag set** (`lrLoanReceivable.IsPayOff = 1` on the record): as decided in
+    [O5](#open-point-decisions).
   - **Active, payoff flag not set**: principal balance is the record's value (FR-003),
-    principal balance available is `true`, and principal unavailable reason is absent. A
-    reversal across loan records of the contract does not change this (the cross-loan rule was
-    dropped on 2026-10-28, O5).
+    principal balance available is `true`, and principal unavailable reason is absent.
 
-  `null` principal occurs only in the first two cases. The O5 check only detects the payoff flag
-  in SPI tables; it never calculates or adjusts an amount.
+  `null` principal occurs only in the first two cases.
 
 **Authentication, authorization, and tenancy**
 
@@ -418,9 +344,8 @@ the documented status, code, and field.
   calculates. That gap is covered by the manual screen check of about 20 active loans (O1 and
   O4, documented deviations from Principle IV in the plan's Complexity Tracking). Principal is
   compared only for active loans whose principal is available. For every active loan whose payoff
-  flag is set, the test instead checks that the API returns principal `null`, not available, with the
-  reason `PAID_OFF_FLAG_SET`, because the screen shows a value the SQL function cannot
-  reproduce (O5, a documented deviation from Principle IV).
+  flag is set, the test instead checks the O5 response (a documented deviation from
+  Principle IV).
 - **SC-002**: For every loan the test-setup script changes or removes in `AlphaPMS_ResortWise_B`,
   the tenant mapped to `AlphaPMS_ResortWise_B` returns a different result (different values, or
   `LOAN_NOT_FOUND`) than the tenant mapped to `AlphaPMS_ResortWise`.
@@ -437,72 +362,45 @@ the documented status, code, and field.
 - **SC-007**: In the test suite, 100% of requests (successful and refused) produce exactly one
   audit entry with the FR-019 fields, and 0 audit entries contain a balance value or credential.
 
-## Open Questions for Clarify
+## Open point decisions
 
-Three points raised on 2026-10-23 in the plan were decided on 2026-10-23 and are closed. See
-[plan.md, Open points for Farzin](plan.md#open-points-for-farzin). A fourth point, O4, was
-raised during implementation and decided on 2026-10-26, then revised after Farzin's pull request
-review on 2026-10-27. O2 was reopened after the T038 screen check and decided again by Farzin on
-2026-10-26; the review approved O1 and O2. A fifth point, O5, was raised by the T069 manual
-screen check. O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately. The cross-loan rule was dropped on 2026-10-28 because it came from a misread screen value;
-O5 is now only the payoff flag rule, still proposed by Yaswanth and pending Farzin's PR
-approval (see [O5](#o5-active-loans-with-spi-data-issues-2026-10-27)).
+The plan raised five open points (see
+[plan.md, Open points for Farzin](plan.md#open-points-for-farzin)). Each decision is stated once
+here; other sections point to it.
 
-- **O1. Principal parity reference**: *Status*: Closed, option (b). The Balance Summary tab
-  shows the Excel engine's Principal Remaining, while the API reads the SQL function. The Excel
-  loan engine is not used in any way: ResortWise never changes or runs SPI Application code, and
-  the constitution allows tests to call only SPI procedures and functions. The parity test uses
-  the SPI SQL function path as the principal reference (FR-021 unchanged). This is a documented
-  deviation from Principle IV in the plan's Complexity Tracking, backed by the 5-loan manual
-  screen check on 2026-10-22, with Farzin's pull request approval as the sign-off. Approved in
-  Farzin's pull request review on 2026-10-27. O4 sets the principal reference the test calls.
-- **O4. Automated principal comparison**: *Status*: Closed, revised by Farzin on 2026-10-27
-  (pull request review). The first decision (2026-10-26), to drop the automated principal
-  comparison, was not approved. The SQL path reference from O1 (`lrGetTransactionActivity`)
-  still is not called, because it reaches the database `AlphaSales` at run time, and the
-  test-only reference login is not given any access to it. Instead, the parity test compares
-  `principalBalance` for every active loan, automatically, with a read-only call to
-  `dbo.lrFnGetBalanceSummary` through the reference login (`rw_parity_ref`). The test rounds the
-  function's principal to 2 decimal places, half away from zero, as the screen does, and checks
-  the field mapping and that neither value is `null`. This catches rounding, mapping, and null
-  errors in the `rw` view and the API across all active loans. It does **not** prove the value
-  the screen shows: the view uses the same function, and the screen shows the SPI Excel loan
-  engine's value. That gap is covered by the manual screen check of about 20 active loans,
-  including partly paid and delinquent ones, picked by rule, with the results kept private. This
-  remains a documented deviation from Principle IV in the plan's Complexity Tracking, with
-  Farzin's pull request approval as the sign-off. The non-active rule (FR-008a) is still tested
-  for every non-active record.
-- **O2. Non-active principal**: *Status*: Reopened, then decided by Farzin on 2026-10-26
-  (option B). The earlier decision (2026-10-23) that a non-active loan record returns principal
-  `0.00` was wrong. The manual screen check (T038) found that the Balance Summary tab shows each
-  old rewritten loan record's own principal balance, not `0.00`, and only the SPI Excel loan
-  engine calculates that value. A non-active loan record now returns its status with principal
-  `null`, `principalBalanceAvailable` `false`, and `principalUnavailableReason`
-  `LOAN_NOT_ACTIVE` (FR-008a), until the engine feature covers it. "Rewritten" is the only
-  non-active status in use; other non-active statuses get the same rule, because their screen
-  value cannot be verified without the engine. Check details are kept privately. Approved in
-  Farzin's pull request review on 2026-10-27, with a note: the rule also covers paid-off and
-  cancelled loan records, where the screen likely shows `0.00`. The API returns `null` with
-  reason `LOAN_NOT_ACTIVE` for them too, and the engine feature must cover them (see
-  [Out of Scope](#out-of-scope)).
-- **O5. Active loans with the payoff flag set**: *Status*: Option B, pending Farzin's pull request approval.
-  O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately. The T069 manual screen check found active loans whose Balance Summary tab shows
-  principal `0.00` while `dbo.lrFnGetBalanceSummary` returns a balance, and a read-only
-  investigation traced them to an SPI data pattern the SQL function cannot see: the payoff flag
-  is set on the loan record. For an active loan record with the flag set, the API returns
-  principal `null`, `principalBalanceAvailable` `false`, and reason `PAID_OFF_FLAG_SET`
-  (FR-008a). Non-active records keep `LOAN_NOT_ACTIVE`. The cross-loan rule was dropped on 2026-10-28 because it came from a misread screen value;
-  O5 is now only the payoff flag rule, still proposed by Yaswanth and pending Farzin's PR
-  approval (see [O5](#o5-active-loans-with-spi-data-issues-2026-10-27)). The `rw` view changes are
-  new scripts: `V004` added the detection flags, and `V005` removes the cross-loan flag. The view
-  only detects the payoff flag from SPI tables and never calculates amounts. This is a documented deviation from Principle IV
-  in the plan's Complexity Tracking, with Farzin's pull request approval as the sign-off. Loan
-  IDs, values, and counts are kept privately.
+- **O1. Principal parity reference**: The Balance Summary tab shows the Principal Remaining that
+  the SPI Excel loan engine calculates. ResortWise never changes or runs SPI Application code,
+  and the constitution allows tests to call only SPI procedures and functions, so the parity
+  reference for principal is the SPI SQL function path (FR-021). This is a documented deviation
+  from Principle IV in the plan's Complexity Tracking. O4 sets the function the test calls.
+  Approved by Farzin on 2026-10-27.
+- **O2. Non-active principal**: A non-active loan record (any status other than exactly
+  "Active") returns its status with `principalBalance` `null` (never `0.00`),
+  `principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE`. The
+  screen shows a principal for such a record that only the SPI Excel loan engine calculates, and
+  the SPI function returns one principal per contract, so the API returns no value in its
+  place. This covers every non-active status, including paid-off and cancelled records, where
+  the screen likely shows `0.00`; the engine feature must cover them (see
+  [Handed to the engine feature](#handed-to-the-engine-feature)). Approved by Farzin on
+  2026-10-27.
 - **O3. Test-only database users and grants**: *Status*: Closed, allowed. The test setup may
   create the test database users and grant the test-only reference login `EXECUTE` on the
   read-only SPI procedures in `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. They add
   permissions only and change no data or object definitions, which fits "exactly as restored"
   and the rule that tests may call SPI procedures read-only.
+- **O4. Automated principal comparison**: The parity test compares `principalBalance` for every
+  active loan whose principal is available with a read-only call to `dbo.lrFnGetBalanceSummary`
+  through the reference login (`rw_parity_ref`). It rounds the function's principal to 2
+  decimal places, half away from zero, as the screen does, and checks the field mapping and that
+  neither value is `null`. The screen's procedure `lrGetTransactionActivity` is not called,
+  because it reaches the database `AlphaSales`, which the reference login cannot access. The
+  test does **not** prove the value the screen shows, because the view uses the same function;
+  that gap is covered by a manual screen check of about 20 active loans, including partly paid
+  and delinquent ones, picked by rule, with results kept private. This is a documented deviation
+  from Principle IV in the plan's Complexity Tracking. Revised after Farzin's 2026-10-27 review; his approval comes with the PR.
+- **O5. Active loans with the payoff flag set**: An active loan with `IsPayOff = 1` returns
+  `principalBalance` `null`, `principalBalanceAvailable` `false`, and
+  `principalUnavailableReason` `PAID_OFF_FLAG_SET`. Approved by Farzin on 2026-10-28.
 
 The questions below were answered by Farzin on 2026-10-22 and are closed. See
 [Farzin's decisions](#farzins-decisions-2026-10-22).
@@ -543,35 +441,25 @@ The questions below were answered by Farzin on 2026-10-22 and are closed. See
   their client-configured names, total balance, past-due amount, and days past due. The SPI Excel
   loan engine calculates these values; they will be a separate feature later.
 - **Principal balance of non-active loan records**: the screen value comes from the SPI Excel
-  loan engine; until the engine feature covers it, the API returns `null` with reason
-  `LOAN_NOT_ACTIVE` (FR-008a). The engine feature must cover every non-active status: old
-  rewritten records (the screen shows the record's own principal) and paid-off and cancelled
-  records (the screen likely shows `0.00`; not verified, because these statuses are not in use in
-  `AlphaPMS_ResortWise`).
-- **Principal balance of active loan records with the payoff flag set** (O5): the screen value
-  comes from the SPI Excel loan engine (the loans checked showed `0.00`), and the SQL function
-  cannot reproduce it. Until the engine feature covers them, the API returns `null` with reason
-  `PAID_OFF_FLAG_SET` (FR-008a). The engine feature must cover them.
+  loan engine; until the engine feature covers it, the principal is not available (O2).
+- **Principal balance of active loan records with the payoff flag set**: the screen value comes
+  from the SPI Excel loan engine, and the SQL function cannot reproduce it; until the engine
+  feature covers it, the principal is not available (O5).
 - **Payoff amount**: a separate feature.
 - **Balances as of a past or future date**: the request takes no date input.
 
 ## Handed to the engine feature
 
 The engine feature (the later feature that covers values the SPI Excel loan engine calculates)
-takes over the items below, and its spec must carry each one. Putting the O5 rules in its scope
-is one of the two conditions of Farzin's agreement to O5. Since the cross-loan rule was dropped
-on 2026-10-28, the payoff flag rule is the only O5 rule left to hand over.
+takes over the items below, and its spec must carry each one.
 
-- **O5 rule, `PAID_OFF_FLAG_SET`**: an active loan record whose payoff flag
-  (`lrLoanReceivable.IsPayOff`) is set returns principal `null`.
-- The O5 rule is a guess based on a few loans (the loans checked in T069 and the read-only
-  investigation), not SPI's own logic. It may flag loans whose screen value the SQL function
-  matches, and it may miss other cases where the screen differs. The engine feature must
-  replace it with the engine's own logic.
-- **O2 note**: paid-off and cancelled loan records return principal not available (`null`,
-  `principalBalanceAvailable` `false`, reason `LOAN_NOT_ACTIVE`), where the screen likely shows
-  `0.00`. This is not verified, because those statuses are not in use in `AlphaPMS_ResortWise`.
-  The engine feature must cover them.
+- **O5, `PAID_OFF_FLAG_SET`**: the payoff flag rule is based on a few loans, not on SPI's own
+  logic. It may flag loans whose screen value the SQL function matches, and it may miss other
+  cases where the screen differs. The engine feature must replace it with the engine's own
+  logic.
+- **O2, non-active records**: every non-active status, including paid-off and cancelled records,
+  where the screen likely shows `0.00`. This is not verified, because those statuses are not in
+  use in `AlphaPMS_ResortWise`. The engine feature must cover them.
 
 ## Assumptions
 

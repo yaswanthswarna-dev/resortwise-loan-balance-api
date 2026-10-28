@@ -13,19 +13,18 @@ namespace ResortWise.LoanBalance.DbTests.Parity;
 /// <c>lrGetLoanStatusTypes</c>, as-of date from the server clock; and the principal is available
 /// (a number, <c>principalBalanceAvailable</c> true, no <c>principalUnavailableReason</c>; O2) and
 /// equals <c>dbo.lrFnGetBalanceSummary</c>'s <c>principalRemaining</c>, rounded here to 2 places
-/// half away from zero (O4 revised). All reference calls are read-only and use the reference
+/// half away from zero (O4). All reference calls are read-only and use the reference
 /// login. Contract IDs are read at run time and never logged or saved; failures name the loan ID
 /// and field only, in git-ignored <c>TestResults/</c>.
 /// The principal reference is the same SPI function the <c>rw</c> view uses, so this catches
 /// rounding, mapping, and null errors across all active loans but does not prove the value the
 /// screen shows, which the Excel engine calculates; that rests on the manual screen check (plan,
 /// Complexity Tracking).
-/// O5 (proposed by Yaswanth 2026-10-27, agreed by Farzin pending his PR approval): an active
+/// O5 (approved by Farzin 2026-10-28): an active
 /// record whose payoff flag is set shows a screen value the function cannot reproduce. This test
 /// finds those records with its own read-only query on SPI tables, independent of the <c>rw</c>
 /// view, and checks that the API returns principal null, not available, with
-/// <c>PAID_OFF_FLAG_SET</c>; principal is compared for every other active record, including those
-/// the dropped cross-loan rule used to flag (2026-10-28). The counts go to git-ignored
+/// <c>PAID_OFF_FLAG_SET</c>; principal is compared for every other active record. The counts go to git-ignored
 /// <c>TestResults/o5-checks.txt</c>, never to the run summary that is pasted into the pull request.
 /// </summary>
 [Trait("Category", "Database")]

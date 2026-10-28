@@ -34,26 +34,29 @@ its own.
 - Only `tests/db/setup/*.sql` may change data, only in `AlphaPMS_ResortWise_B`, and it is run by
   hand (quickstart step 2), never by the test run.
 
-**Decisions O1–O3, closed 2026-10-23** (plan, Open points for Farzin): **O1**, option (b): the
-principal parity reference is the SPI SQL function path, with a documented Principle IV deviation;
-the Excel engine is not used in any way. **O3**: the test-only users and `EXECUTE` grants on
-read-only SPI procedures are allowed. **O2, reopened and decided by Farzin 2026-10-26 (option
-B)**: non-active loan records return their status with principal `null` (never `0.00`),
-`principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE`; the
-earlier `0.00` rule was wrong (T038). The view change is `V003` (T063), because `V002` is already
-applied. **Farzin's pull request review, 2026-10-27**: O1 and O2 approved; **O4 revised**: T031
-compares `principalBalance` for every active loan with a read-only call to
-`dbo.lrFnGetBalanceSummary` through `rw_parity_ref` (rounding to 2 places, field mapping, and
-nulls), which catches rounding, mapping, and null errors but does not prove the screen value
-(the Excel engine calculates it); the manual screen check grows to about 20 active loans; and
-the O2 null rule also covers paid-off and cancelled records, which the engine feature must
-cover. These are T066–T072 (Phase 8). **O5 (option B)**: an
-**active** record whose payoff flag is set returns principal `null`, `principalBalanceAvailable`
-`false`, and reason `PAID_OFF_FLAG_SET`; non-active records keep `LOAN_NOT_ACTIVE` (first match
-wins, in that order). The view change was `V004`, which only detects these cases from SPI tables
-and never calculates amounts. The cross-loan rule (`CROSS_LOAN_REVERSAL`) was dropped on 2026-10-28 because it came from a misread screen value; O5 is now only the payoff flag rule, still proposed by Yaswanth and pending Farzin's PR approval. `V004` also had a cross-loan reversal flag;
-`V005` removes it (T088–T097, Phase 11). A documented Principle IV deviation, signed off by Farzin's PR approval. O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately.
-These are T073–T083 (Phase 9). No task waits on an open decision.
+**Decisions** (plan, Open points for Farzin):
+
+- **O1**: the principal parity reference is the SPI SQL function path, with a documented
+  Principle IV deviation; the Excel engine is not used in any way. Approved by Farzin on
+  2026-10-27.
+- **O2**: non-active loan records return their status with principal `null` (never `0.00`),
+  `principalBalanceAvailable` `false`, and `principalUnavailableReason` `LOAN_NOT_ACTIVE`. This
+  covers paid-off and cancelled records too, which the engine feature must cover (T032, T043,
+  T060–T065, T070). Approved by Farzin on 2026-10-27.
+- **O3**: the test-only users and `EXECUTE` grants on read-only SPI procedures are allowed.
+- **O4**: T031 compares `principalBalance` for every active loan whose principal is available
+  with a read-only call to `dbo.lrFnGetBalanceSummary` through `rw_parity_ref` (rounding to 2
+  places, field mapping, and nulls). This catches rounding, mapping, and null errors but does not
+  prove the screen value, which the Excel engine calculates; a manual screen check of about 20
+  active loans covers that gap (T066–T072, Phase 8). Revised after Farzin's 2026-10-27 review;
+  his approval comes with the PR.
+- **O5**: an active loan with `IsPayOff = 1` returns principal `null`,
+  `principalBalanceAvailable` `false`, and reason `PAID_OFF_FLAG_SET`; a non-active record
+  returns `LOAN_NOT_ACTIVE` first. The view only detects the flag from SPI tables and never
+  calculates amounts; its current definition is `V005`. A documented Principle IV deviation
+  (T073–T083, Phase 9; T088–T097, Phase 11). Approved by Farzin on 2026-10-28.
+
+No task waits on an open decision.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -263,10 +266,7 @@ the repository, the PR, or test output outside git-ignored `TestResults/`.
 
 ## Phase 9: Active loans with SPI data issues (O5, 2026-10-27)
 
-**Purpose**: Implement O5. An active record with the payoff flag set, or on a contract with a
-cross-loan reversal, returns principal `null`, not available, with reason `PAID_OFF_FLAG_SET` or
-`CROSS_LOAN_REVERSAL` (spec FR-008a; data-model.md). O5 proposed by Yaswanth on 2026-10-27. Farzin agreed with the approach on 2026-10-27, pending his PR approval, on two conditions: both rules go into the engine feature's scope, and the per-pattern counts were sent to him privately. The cross-loan rule was
-dropped on 2026-10-28 (Phase 11). No loan IDs, amounts, or counts of O5 loans
+**Purpose**: Implement O5 (spec FR-008a; data-model.md). No loan IDs, amounts, or counts of O5 loans
 in the repository, the PR, or test output outside git-ignored `TestResults/`. Tests T073–T078
 first; each fails until T079–T081 are done.
 
@@ -299,13 +299,13 @@ first; each fails until T079–T081 are done.
   parallel with T066; T069 any time (manual; its O5 rerun after T081); T071 after T066–T068 and
   T070; T072 after T069 and T082; T058 (merge) after T072
 - **O5 (Phase 9)**: After T071. Tests T073–T078 first, in parallel except T077 and T078 after
-  T076 (the test-code scanner must allow `lrTransaction`); then T079 → T080 (apply `V004`) and
-  T081; T082 after T073–T081; T083 any time
+  T076 (the test-code scanner's allowlist for T077's SPI table reads); then T079 → T080 (apply
+  the view script) and T081; T082 after T073–T081; T083 any time
 
 ### User Story Dependencies
 
 - **US1 (P1)**: After Foundational. No dependency on other stories. The principal comparison in
-  T031 uses the SPI SQL function (O1 option (b); O4 revised, T067), so no engine-harness tasks
+  T031 uses the SPI SQL function (O1; O4, T067), so no engine-harness tasks
   are needed
 - **US2 (P1)**: After Foundational. Its tests use the fake repository and valid loan IDs, so it
   does not need US1 or US4
@@ -317,15 +317,11 @@ first; each fails until T079–T081 are done.
 - Tests are written first and fail before implementation
 - `rw` scripts before the repository, the repository before the endpoint
 - T038 (manual per-status check) and T057 (decisions recorded) must be done before the PR (T058)
-- T032, T043, and T060–T065 follow O2 (option B, decided 2026-10-26: non-active principal
-  `null`, reason `LOAN_NOT_ACTIVE`). Tests T032, T043, and T060–T062 first; then T063 → T064
+- T032, T043, and T060–T065 follow O2. Tests T032, T043, and T060–T062 first; then T063 → T064
   (apply `V003`) and T065. T043 also needs T063–T065 before it passes
-- T073–T083 follow O5 (option B, proposed 2026-10-27: active records with the payoff flag set or
-  a cross-loan reversal return principal `null`, reason `PAID_OFF_FLAG_SET` or
-  `CROSS_LOAN_REVERSAL`). T079 needs T075, because the new scanner rule must already pass on
-  `V004`
-- T088–T097 drop the cross-loan rule (2026-10-28). Tests T089–T092 first; then T093 (`V005`) and
-  T094 (API). T095 (apply `V005`) waits for the user's approval; T096 needs T095; T097 needs T096
+- T073–T083 and T088–T097 follow O5. T079 needs T075, because the new scanner rule must already
+  pass on the view script. Tests T089–T092 first; then T093 (`V005`) and T094 (API). T095 (apply
+  `V005`) waits for the user's approval; T096 needs T095; T097 needs T096
 - T011 and T028 follow O3 (test-only users and grants, allowed)
 
 ### Parallel Opportunities
