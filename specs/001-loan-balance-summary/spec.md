@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-22
 
-**Status**: Draft
+**Status**: Done
 
 **API Contract**: [contracts/loan-balance-summary.openapi.yaml](contracts/loan-balance-summary.openapi.yaml)
 (OpenAPI). The contract is part of this specification; where they differ, update both together.
