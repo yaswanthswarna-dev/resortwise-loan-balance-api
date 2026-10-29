@@ -22,17 +22,26 @@ Secrets live only in git-ignored local settings: `dotnet user-secrets`, `appsett
 Pull request descriptions, comments, and reviews are public too. Never paste loan values, owner
 details, or any other client data into them.
 
+Pull request descriptions drafted for this repository never include "Generated with Claude Code"
+or any other AI attribution line.
+
 Before every commit, check the staged diff (`git diff --cached`) for secrets and real data. If a
 secret is ever committed, treat it as compromised and rotate it. Rewriting history is not enough.
 
 ## Database rules
 
-- **Never touch SPI objects.** Do not create, alter, drop, or write to SPI tables, stored
-  procedures, or functions.
+- **Never change SPI.** ResortWise never changes SPI Application code or SPI database objects
+  (tables, views, stored procedures, functions). Do not create, alter, drop, or write to them.
+  The SPI Excel loan engine is one example and is never modified.
 - **New database objects go only in the `rw` schema.** ResortWise may add views and tables there,
   and nowhere else.
-- **The API reads SPI data only through `rw` views.** Application code never queries SPI tables or
-  calls SPI procedures directly.
+- **`rw` views may call SPI functions read-only**, so SPI logic is reused instead of rebuilt. No
+  `rw` object may call an SPI procedure or anything that writes data.
+- **The API reads SPI data only through `rw` views.** Application code never queries SPI tables
+  and never calls SPI procedures or functions itself.
+- **Tests may call SPI procedures and functions read-only for parity.** Tests may call them only
+  against the local test databases, only to get parity reference values. Tests never call any SPI
+  procedure that writes data. This exception never applies to application code.
 - Every `rw` object is created by a versioned script committed to this repo.
 - **One database per tenant.** Each SPI client has its own database. A tenant registry maps each
   tenant ID to exactly one database, and the API only ever connects to the database mapped to the
@@ -44,8 +53,8 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
 - **Test-setup scripts change data only in `AlphaPMS_ResortWise_B`.** They never change data in
   `AlphaPMS_ResortWise` or in a client database, and they never create, alter, or drop SPI
   objects.
-- **`AlphaPMS_ResortWise` is the parity reference and stays exactly as restored.** No script may
-  ever change data in it.
+- **`AlphaPMS_ResortWise` is the parity reference and stays exactly as restored.** Its data never
+  changes: no script may ever change data in it. Adding `rw` objects to it is allowed.
 - Tenant isolation tests use `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`. A test-setup
   script changes or removes some loans in `AlphaPMS_ResortWise_B` so the two databases return
   different results.
@@ -74,9 +83,13 @@ secret is ever committed, treat it as compromised and rotate it. Rewriting histo
    Never return data from another tenant. Isolation tests use at least two tenant databases
    (`AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B` locally) and prove one tenant cannot read
    another tenant's loans.
-3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules). The only
-   exception is test-setup scripts, which may change data in `AlphaPMS_ResortWise_B` only; see
-   [Test data rules](#test-data-rules).
+3. **SPI schema is read-only (non-negotiable).** See [Database rules](#database-rules).
+   ResortWise never changes SPI Application code or SPI database objects. `rw` views may call SPI
+   functions read-only; the application itself never calls SPI procedures or functions. The only
+   other exceptions are test-setup scripts, which may change data in `AlphaPMS_ResortWise_B` only (see
+   [Test data rules](#test-data-rules)), and tests, which may call SPI procedures and functions
+   read-only against the local test databases for parity reference values, never one that
+   writes data.
 4. **Parity with the SPI Application.** API values must match what the SPI Application shows,
    proven by tests against the `AlphaPMS_ResortWise` test database. If two SPI screens disagree,
    record the loan and both values in the spec and escalate. Never pick one silently.

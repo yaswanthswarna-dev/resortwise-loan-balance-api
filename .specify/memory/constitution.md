@@ -1,25 +1,27 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.2.0 (MINOR: adds an exception to non-negotiable Principle III and
-  a new test data rule, which materially expands guidance under the Governance versioning
-  policy; supersedes the 1.1.1 PATCH label used in the first draft of this amendment)
+- Version change: 1.3.0 → 1.4.0 (MINOR: relaxes and broadens non-negotiable Principle III, from
+  Farzin's review, which materially changes guidance under the Governance versioning policy)
 - Modified principles:
-  - III. SPI Schema Is Read-Only (NON-NEGOTIABLE) (adds the test-setup exception: data changes in
-    the local test copy `AlphaPMS_ResortWise_B` only, never schema changes, never
-    `AlphaPMS_ResortWise` or a client database)
-  - VII. Tested Against SPI Data (adds the test data rule: test-setup scripts change data only in
-    `AlphaPMS_ResortWise_B`; `AlphaPMS_ResortWise` is the parity reference and stays exactly as
-    restored; scripts check the database name first and stop with an error unless it is
-    `AlphaPMS_ResortWise_B`; scripts contain no loan values or client data; isolation tests use
-    the two databases)
+  - III. SPI Schema Is Read-Only (NON-NEGOTIABLE)
+    - Relaxed: `rw` views may call SPI functions read-only so SPI logic is reused instead of
+      rebuilt. No `rw` object may call an SPI procedure or anything that writes data.
+    - Application code still reads SPI data only through `rw` views and never calls SPI
+      procedures or functions itself ("directly or indirectly" replaced by "itself", since a
+      `rw` view may now call SPI functions on its behalf).
+    - Broadened: ResortWise never changes SPI Application code or SPI database objects (tables,
+      views, procedures, functions). The SPI Excel loan engine is named as one example that is
+      never modified.
+  - VII. Tested Against SPI Data (clarifies that `AlphaPMS_ResortWise` "stays exactly as
+    restored" means no data changes; adding `rw` objects is allowed; parity reference calls
+    bullet aligned with Principle III wording)
 - Added sections: none
-- Expanded sections: Data & Platform Constraints (test database bullet names the B copy as the
-  only database test-setup scripts may change, and requires the reference to stay as restored)
+- Expanded sections: Data & Platform Constraints (SPI data access bullet adds the `rw` view
+  rule; new SPI Application bullet; test databases bullet clarifies `rw` objects are allowed)
 - Removed sections: none
 - Templates reviewed: plan-template.md, spec-template.md, tasks-template.md read gates and
   rules from this file at runtime; no edits required
-- CLAUDE.md: test data rule added (data changes in `AlphaPMS_ResortWise_B` only; the parity
-  reference stays exactly as restored); constitution summary item 3 updated to match
+- CLAUDE.md: Database rules, Test data rules, and constitution summary item 3 updated to match
 - Deferred TODOs: none
 -->
 
@@ -68,19 +70,33 @@ one database per tenant makes the isolation boundary physical and testable.
 
 ### III. SPI Schema Is Read-Only (NON-NEGOTIABLE)
 
-- ResortWise MUST NEVER create, alter, or drop SPI tables, stored procedures, functions, or
-  other SPI-owned objects, and MUST NEVER write to SPI tables.
+- ResortWise MUST NEVER change the SPI Application or its database. This covers SPI Application
+  code and SPI database objects (tables, views, stored procedures, functions, and any other
+  SPI-owned object): ResortWise MUST NEVER create, alter, or drop them, and MUST NEVER write to
+  SPI tables. The SPI Excel loan engine is one example of SPI Application code and MUST NEVER be
+  modified.
 - ResortWise MAY add new views and tables only, and all of them MUST live in the `rw` schema.
+- `rw` views MAY call SPI functions read-only, so that SPI's own logic is reused instead of
+  rebuilt. No `rw` object may call an SPI stored procedure or any object that writes data.
 - The API MUST read SPI data only through `rw` views. Application code MUST NOT query SPI tables
-  or call SPI procedures directly.
+  and MUST NOT call SPI stored procedures or functions itself; SPI functions run on its behalf
+  only inside `rw` views, under the rule above.
 - Every `rw` object MUST be created by a versioned, reviewable script committed to this repository.
-- The only exception is test-setup scripts, which MAY change data in the local test copy
-  `AlphaPMS_ResortWise_B` only, under the test data rule in Principle VII. They MUST NOT create,
-  alter, or drop SPI objects, and MUST NEVER run against `AlphaPMS_ResortWise` or a client
-  database.
+- The only exception for writes is test-setup scripts, which MAY change data in the local test
+  copy `AlphaPMS_ResortWise_B` only, under the test data rule in Principle VII. They MUST NOT
+  create, alter, or drop SPI objects, and MUST NEVER run against `AlphaPMS_ResortWise` or a
+  client database.
+- The only exception for SPI procedures and functions is tests: tests MAY call SPI stored
+  procedures and functions read-only, against the local test databases only, to get parity
+  reference values (Principle IV). Tests MUST NEVER call an SPI procedure that writes data. This
+  exception never extends to application code.
 
 **Rationale**: The SPI Application owns its schema. Isolating ResortWise in `rw` keeps SPI
-upgrades safe and gives one auditable seam between the two systems.
+upgrades safe and gives one auditable seam between the two systems. Reusing SPI functions inside
+`rw` views keeps calculations identical to the SPI Application without copying its logic, while
+the application still depends only on `rw` views. SPI's own read procedures
+and functions are often the closest source of what the SPI Application shows, so tests may use
+them as an independent parity reference, while the application stays behind `rw` views.
 
 ### IV. Parity with the SPI Application
 
@@ -145,7 +161,8 @@ improve.
   `AlphaPMS_ResortWise_B`. They MUST NEVER change data in `AlphaPMS_ResortWise` or in a client
   database.
   - `AlphaPMS_ResortWise` is the parity reference (Principle IV) and MUST stay exactly as
-    restored. No script may ever change data in it.
+    restored, meaning its data never changes: no script may ever change data in it. Adding `rw`
+    objects to it through the versioned scripts (Principle III) is allowed.
   - Tenant isolation tests (Principle II) use `AlphaPMS_ResortWise` and `AlphaPMS_ResortWise_B`
     as the two tenant databases. A test-setup script changes or removes some loans in
     `AlphaPMS_ResortWise_B` so the two databases return different results.
@@ -155,6 +172,10 @@ improve.
   - Test-setup scripts MUST NOT contain loan values or client data (Principle V). They select
     rows by rule (for example, by a condition on loan IDs), never by listing specific loans or
     values.
+- **Parity reference calls**: tests MAY call SPI stored procedures and functions read-only, and
+  only against the local test databases, to get the reference values that API results are
+  compared with (Principles III and IV). Tests MUST NEVER call an SPI procedure that writes
+  data. Application code MUST NEVER call SPI procedures or functions itself (Principle III).
 
 **Rationale**: Automated checks against real SPI data are the only durable proof of correctness
 and parity. Keeping database tests off GitHub keeps SPI data and connection details out of a
@@ -183,9 +204,14 @@ contract evolve without breaking existing clients.
   configuration files contain placeholders only (Principle V).
 - Tenant data: one SPI database per client, selected only through the tenant registry
   (Principle II).
-- SPI data access: read-only, via `rw` views only (Principle III).
-- Test databases: `AlphaPMS_ResortWise` is the reference for parity tests and MUST stay exactly
-  as restored. A second local copy, `AlphaPMS_ResortWise_B`, is the only database test-setup
+- SPI data access: read-only, via `rw` views only (Principle III). `rw` views MAY call SPI
+  functions read-only, and no `rw` object may call an SPI procedure or anything that writes data.
+  Tests alone MAY also call SPI procedures and functions read-only against the local test
+  databases for parity reference values (Principles III and VII).
+- SPI Application: ResortWise never changes SPI Application code (including the SPI Excel loan
+  engine) or SPI database objects (Principle III).
+- Test databases: `AlphaPMS_ResortWise` is the reference for parity tests and its data MUST stay
+  exactly as restored; adding `rw` objects to it is allowed. A second local copy, `AlphaPMS_ResortWise_B`, is the only database test-setup
   scripts may change, and serves as the second tenant in isolation tests. Their connection
   details are supplied through git-ignored local settings or environment variables only
   (Principle V), and tests against them run locally only (Principle VII).
@@ -224,4 +250,4 @@ contract evolve without breaking existing clients.
   guidance; PATCH for clarifications and wording fixes.
 - Reviewers MUST verify compliance with these principles on every pull request.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
+**Version**: 1.4.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-23

@@ -1,0 +1,309 @@
+openapi: 3.0.3
+info:
+  title: ResortWise Loan Balance API
+  version: 1.0.0
+  description: |
+    Read-only access to SPI loan balances for ResortWise tenants.
+
+    Every request must carry an `X-Tenant-Id` header and a valid caller credential, and the
+    caller must be allowed the requested tenant. Tenant and credential checks happen before any
+    loan data is read. Each tenant maps to exactly one database; a request only ever sees data
+    from its own tenant. A loan that belongs to another tenant is indistinguishable from a loan
+    that does not exist.
+
+    Errors always carry a stable `code`. Clients must map errors by `code`, never by `message`.
+    Input errors also carry the offending `field`. Error codes listed here are part of the `/v1`
+    contract and are never renamed or repurposed within this version.
+
+    All examples in this document are synthetic.
+servers:
+  - url: /v1
+    description: Version 1 (path-versioned)
+security:
+  - callerCredential: []
+paths:
+  /loans/{loanId}/balance-summary:
+    get:
+      operationId: getLoanBalanceSummary
+      summary: Get one loan's balance summary
+      description: |
+        Returns the same values the SPI Application shows for the loan record in the caller's
+        tenant, as of today: principal balance from Principal Remaining on the Balance Summary
+        tab of the Transaction Activity screen, and loan status from the Loan Summary
+        Information tab, Current Payment Information section. Works per loan record: an old loan
+        record left behind by a rewrite returns its own summary and non-active status. Payoff
+        amount and the other balance fields (interest, fees, unapplied, Others 1 to 5, total
+        balance, past due) are not part of this response; they will be a separate feature.
+
+        Principal availability is decided by the first rule that applies, in this order:
+
+        1. Any status other than exactly `Active` (for example an old loan record left behind by
+           a rewrite): `principalBalance` is `null` (never `0.00`), `principalBalanceAvailable`
+           is `false`, and `principalUnavailableReason` is `LOAN_NOT_ACTIVE`. The SPI
+           Application shows such a record's own principal, which only the SPI loan engine
+           calculates; this API does not return it yet.
+        2. Status `Active` and the loan record's payoff flag is set in SPI: `principalBalance` is
+           `null`, `principalBalanceAvailable` is `false`, and `principalUnavailableReason` is
+           `PAID_OFF_FLAG_SET`.
+        3. Otherwise (status `Active`): `principalBalance` is a number (zero is `0.00`),
+           `principalBalanceAvailable` is `true`, and `principalUnavailableReason` is absent.
+
+        In case 2 the SPI Application shows a principal that this API cannot reproduce
+        from SPI data, so it reports the principal as not available instead of returning a
+        different value. `principalBalance` is `null` in no other case. If the principal of an
+        active record in case 3 cannot be read, the response is `500 INTERNAL_ERROR`. Clients
+        must decide by `principalBalanceAvailable`, not by `loanStatus`: an active loan may have
+        no principal available, and a later release may make the principal available in cases
+        1 and 2.
+
+        Check order: credential (401), tenant header (400), tenant authorization (403), loan ID
+        validation (400), loan lookup (404).
+      tags: [Loans]
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: loanId
+          in: path
+          required: true
+          description: |
+            The SPI loan record's numeric ID: a positive whole number written in plain digits,
+            with no sign, decimal point, leading zeros, or surrounding whitespace. A value outside
+            the range of the SPI loan record ID returns `LOAN_ID_INVALID`.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 2147483647
+          example: 100245
+      responses:
+        '200':
+          description: The loan's balance summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanBalanceSummary'
+              examples:
+                active:
+                  summary: Active loan record
+                  value:
+                    loanId: 100245
+                    loanStatus: Active
+                    asOfDate: '2026-10-22'
+                    principalBalance: 12500.00
+                    principalBalanceAvailable: true
+                notActive:
+                  summary: Non-active loan record (principal not available)
+                  value:
+                    loanId: 100244
+                    loanStatus: Rewritten
+                    asOfDate: '2026-10-22'
+                    principalBalance: null
+                    principalBalanceAvailable: false
+                    principalUnavailableReason: LOAN_NOT_ACTIVE
+                paidOffFlagSet:
+                  summary: Active loan record with the payoff flag set (principal not available)
+                  value:
+                    loanId: 100246
+                    loanStatus: Active
+                    asOfDate: '2026-10-22'
+                    principalBalance: null
+                    principalBalanceAvailable: false
+                    principalUnavailableReason: PAID_OFF_FLAG_SET
+        '400':
+          description: |
+            `TENANT_REQUIRED` when `X-Tenant-Id` is missing, empty, or whitespace only
+            (`field` is `X-Tenant-Id`). `LOAN_ID_INVALID` when the loan ID is not a valid SPI
+            loan record ID (`field` is `loanId`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tenantRequired:
+                  value:
+                    code: TENANT_REQUIRED
+                    message: The X-Tenant-Id header is required.
+                    field: X-Tenant-Id
+                loanIdInvalid:
+                  value:
+                    code: LOAN_ID_INVALID
+                    message: The loan ID is not valid.
+                    field: loanId
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/TenantForbidden'
+        '404':
+          description: |
+            `LOAN_NOT_FOUND` when no loan with this ID exists in the caller's tenant. The
+            response is identical whether the loan does not exist anywhere or exists only in
+            another tenant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: LOAN_NOT_FOUND
+                message: The loan was not found.
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+components:
+  securitySchemes:
+    callerCredential:
+      type: http
+      scheme: bearer
+      description: |
+        A per-caller API key sent as `Authorization: Bearer <api-key>`. Each caller has its
+        own key, issued by the operator of the deployment. The service stores only a hash of
+        each key and maps each caller to the tenants it is allowed. Missing or invalid
+        credentials return `401 UNAUTHENTICATED`.
+  parameters:
+    TenantId:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: |
+        The tenant (SPI client) the request is for. The caller must be allowed this tenant.
+        An unknown tenant ID is treated the same as a tenant the caller is not allowed
+        (`403 TENANT_FORBIDDEN`), so the response never reveals which tenants exist.
+      schema:
+        type: string
+        minLength: 1
+      example: tenant-a
+  responses:
+    Unauthenticated:
+      description: '`UNAUTHENTICATED`: the caller credential is missing or invalid.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: UNAUTHENTICATED
+            message: A valid caller credential is required.
+    TenantForbidden:
+      description: '`TENANT_FORBIDDEN`: the caller is not allowed the requested tenant.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: TENANT_FORBIDDEN
+            message: The caller is not allowed to access this tenant.
+    InternalError:
+      description: '`INTERNAL_ERROR`: an unexpected error occurred. No details are exposed.'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: INTERNAL_ERROR
+            message: An unexpected error occurred.
+    ServiceUnavailable:
+      description: |
+        `TENANT_UNAVAILABLE`: the tenant's data source cannot be reached right now. The
+        request may be retried later.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: TENANT_UNAVAILABLE
+            message: The tenant's data is temporarily unavailable.
+  schemas:
+    LoanBalanceSummary:
+      type: object
+      description: |
+        One loan record's balance summary as of today, matching the SPI Application screen
+        sections described on the operation.
+        When available, the principal balance is an exact decimal value in the loan's currency
+        with two decimal places, as the SPI Application shows it. It is not recomputed by the
+        API. When it is not available, it is `null`, never `0.00`; see the operation for exactly
+        when.
+      required:
+        - loanId
+        - loanStatus
+        - asOfDate
+        - principalBalance
+        - principalBalanceAvailable
+      properties:
+        loanId:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2147483647
+          description: The SPI loan record's numeric ID, as requested.
+          example: 100245
+        loanStatus:
+          type: string
+          description: The loan's status as the SPI Application shows it.
+          example: Active
+        asOfDate:
+          type: string
+          format: date
+          description: >-
+            The date the balance is stated as of: currently the database server's current date.
+            A hosted server may run in a different time zone than the resort, so near midnight
+            this can differ from the resort's local date. Callers cannot request another date.
+          example: '2026-10-22'
+        principalBalance:
+          type: number
+          format: decimal
+          multipleOf: 0.01
+          nullable: true
+          description: |
+            Principal Remaining for this loan record. Always present. When
+            `principalBalanceAvailable` is `true`, an exact decimal amount with two decimal
+            places, as the SPI Application shows it; it may be negative where the SPI Application
+            shows a negative value. When `principalBalanceAvailable` is `false`, `null`. Never
+            `0.00` in place of an unavailable value.
+        principalBalanceAvailable:
+          type: boolean
+          description: |
+            `true` when `principalBalance` holds the loan record's principal (status exactly
+            `Active` and its payoff flag is not set in SPI); `false` when it is `null` (see
+            `principalUnavailableReason`).
+        principalUnavailableReason:
+          type: string
+          description: |
+            Why the principal is not available. Present only when `principalBalanceAvailable` is
+            `false`; absent otherwise. A stable code: clients map it by value, and it is never
+            renamed or repurposed within `/v1`. New reasons may be added within `/v1`, so clients
+            must treat a reason they do not recognize as "principal not available" and rely on
+            `principalBalanceAvailable`. Exactly one reason is given, the first that applies in
+            this order:
+
+            - `LOAN_NOT_ACTIVE`: the loan record's status is not `Active`.
+            - `PAID_OFF_FLAG_SET`: the record is `Active`, but its payoff flag is set in SPI.
+          enum:
+            - LOAN_NOT_ACTIVE
+            - PAID_OFF_FLAG_SET
+      example:
+        loanId: 100245
+        loanStatus: Active
+        asOfDate: '2026-10-22'
+        principalBalance: 12500.00
+        principalBalanceAvailable: true
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable, machine-readable error code. Clients map errors by this value.
+          enum:
+            - TENANT_REQUIRED
+            - UNAUTHENTICATED
+            - TENANT_FORBIDDEN
+            - LOAN_ID_INVALID
+            - LOAN_NOT_FOUND
+            - TENANT_UNAVAILABLE
+            - INTERNAL_ERROR
+        message:
+          type: string
+          description: |
+            Human-readable description. May change at any time. Never contains secrets, SQL,
+            stack traces, or other tenants' data.
+        field:
+          type: string
+          description: The offending input field. Present for input errors only.

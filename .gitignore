@@ -8,6 +8,7 @@
 # Secrets & local configuration
 # -----------------------------------------------------------------------------
 appsettings.Development.json
+*.Development.json
 appsettings.Local.json
 appsettings.*.Local.json
 appsettings.Secrets.json
